@@ -5,6 +5,7 @@ import { EffectRenderer } from './modules/EffectRenderer';
 import { ResultScreen } from './modules/ResultScreen';
 import { StartScreen } from './modules/StartScreen';
 import { ScoreStorage } from './modules/ScoreStorage';
+import { LyricProgress } from './modules/LyricProgress';
 import { getSongById, getNotesForDifficulty } from './data/songs';
 import { ChartData, CharHitRecord, Difficulty, JudgeEvent, JudgeResult, LANE_COUNT, NoteData, NoteType } from './types';
 
@@ -45,6 +46,7 @@ export class Game {
   private effectRenderer: EffectRenderer;
   private resultScreen: ResultScreen;
   private startScreen: StartScreen;
+  private lyricProgress: LyricProgress;
   
   private gameContainer: PIXI.Container;
   private noteSprites: Map<number, NoteSprite> = new Map();
@@ -115,6 +117,7 @@ export class Game {
     this.effectRenderer = new EffectRenderer(this.app);
     this.resultScreen = new ResultScreen(this.app);
     this.startScreen = new StartScreen(this.app);
+    this.lyricProgress = new LyricProgress(this.app);
     
     this.gameContainer = new PIXI.Container();
     this.noteLayer = new PIXI.Container();
@@ -142,6 +145,8 @@ export class Game {
   private setupUI(): void {
     const bg = this.effectRenderer.createBackground();
     this.gameContainer.addChildAt(bg, 0);
+    
+    this.effectRenderer.initAtmosphere(this.gameContainer);
     
     const laneBg = this.effectRenderer.createLaneBackground(LANE_COUNT);
     this.gameContainer.addChildAt(laneBg, 1);
@@ -554,6 +559,10 @@ export class Game {
     this.resultScreen.setOnBackToStartCallback(() => {
       this.backToStartScreen();
     });
+
+    this.lyricProgress.setOnLineCompleteCallback((lineIndex: number, totalLines: number) => {
+      this.effectRenderer.setAtmosphereLevel(lineIndex, totalLines);
+    });
   }
 
   private processJudgeEvent(event: JudgeEvent): void {
@@ -573,7 +582,8 @@ export class Game {
       result: event.result as JudgeResult,
       noteType: event.noteType
     });
-    this.effectRenderer.addLyricChar(event.lyricChar, this.charRecords.length - 1, hit);
+
+    this.lyricProgress.onNoteJudged(event.noteId, hit, event.result);
     
     this.updateUI();
   }
@@ -592,6 +602,7 @@ export class Game {
     missEvents.forEach(event => this.processJudgeEvent(event));
     
     this.effectRenderer.update(delta);
+    this.lyricProgress.update();
     
     this.updateNoteSprites();
     this.checkGameEnd();
@@ -653,6 +664,7 @@ export class Game {
   private showStartScreen(): void {
     this.gameState = 'start';
     this.gameContainer.visible = false;
+    this.lyricProgress.setVisible(false);
     this.startScreen.show();
   }
 
@@ -680,6 +692,9 @@ export class Game {
     
     this.resetGame();
     this.createSongInfoOverlay();
+    
+    this.lyricProgress.initialize(notes, song.poemLines);
+    this.lyricProgress.setVisible(true);
     
     this.rhythmJudge.setNotes(notes);
     
@@ -709,6 +724,10 @@ export class Game {
     this.effectRenderer.clearLitCharacters();
     this.effectRenderer.clearHoldEffects();
     this.effectRenderer.clearSlideTrails();
+    this.effectRenderer.resetAtmosphere();
+    
+    this.lyricProgress.reset();
+    this.lyricProgress.setVisible(false);
     
     this.noteSprites.forEach(sprite => {
       this.noteLayer.removeChild(sprite.container);
@@ -766,6 +785,9 @@ export class Game {
     
     const notes = this.currentChart.notes;
     this.rhythmJudge.setNotes(notes);
+
+    this.lyricProgress.initialize(notes, this.currentChart.poemLines);
+    this.lyricProgress.setVisible(true);
     
     this.gameState = 'playing';
     this.startTime = performance.now();

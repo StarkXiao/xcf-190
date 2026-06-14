@@ -27,6 +27,25 @@ interface SlideTrail {
   life: number;
 }
 
+interface AtmosphereState {
+  overlay: PIXI.Graphics;
+  currentColor: number;
+  currentAlpha: number;
+  targetColor: number;
+  targetAlpha: number;
+  transitionSpeed: number;
+  ambientParticles: PIXI.Sprite[];
+  ambientParticleData: { vx: number; vy: number; baseY: number; phase: number }[];
+}
+
+const ATMOSPHERE_PRESETS = [
+  { color: 0x0a0a1a, alpha: 0 },
+  { color: 0x1a0a3a, alpha: 0.15 },
+  { color: 0x2a1a0a, alpha: 0.18 },
+  { color: 0x0a2a1a, alpha: 0.2 },
+  { color: 0x2a2a0a, alpha: 0.22 },
+];
+
 export class EffectRenderer {
   private app: PIXI.Application;
   private container: PIXI.Container;
@@ -43,6 +62,7 @@ export class EffectRenderer {
   private litCharacters: PIXI.Text[] = [];
   private lyricContainer: PIXI.Container;
   private charCount: number = 0;
+  private atmosphere: AtmosphereState;
 
   constructor(app: PIXI.Application) {
     this.app = app;
@@ -53,6 +73,103 @@ export class EffectRenderer {
     this.lyricContainer.x = this.app.screen.width / 2;
     this.lyricContainer.y = 100;
     this.app.stage.addChild(this.lyricContainer);
+
+    this.atmosphere = this.createAtmosphere();
+  }
+
+  private createAtmosphere(): AtmosphereState {
+    const overlay = new PIXI.Graphics();
+    overlay.beginFill(0x0a0a1a, 0);
+    overlay.drawRect(0, 0, this.app.screen.width, this.app.screen.height);
+    overlay.endFill();
+
+    const ambientParticles: PIXI.Sprite[] = [];
+    const ambientParticleData: { vx: number; vy: number; baseY: number; phase: number }[] = [];
+
+    for (let i = 0; i < 20; i++) {
+      const g = new PIXI.Graphics();
+      const size = 1 + Math.random() * 2;
+      g.beginFill(0xffd700, 0);
+      g.drawCircle(0, 0, size);
+      g.endFill();
+
+      const texture = this.app.renderer.generateTexture(g);
+      const sprite = new PIXI.Sprite(texture);
+      sprite.anchor.set(0.5);
+      sprite.x = Math.random() * this.app.screen.width;
+      sprite.y = Math.random() * this.app.screen.height;
+      sprite.alpha = 0;
+
+      ambientParticles.push(sprite);
+      ambientParticleData.push({
+        vx: (Math.random() - 0.5) * 0.3,
+        vy: -0.2 - Math.random() * 0.3,
+        baseY: sprite.y,
+        phase: Math.random() * Math.PI * 2,
+      });
+    }
+
+    return {
+      overlay,
+      currentColor: 0x0a0a1a,
+      currentAlpha: 0,
+      targetColor: 0x0a0a1a,
+      targetAlpha: 0,
+      transitionSpeed: 0.02,
+      ambientParticles,
+      ambientParticleData,
+    };
+  }
+
+  public initAtmosphere(parent: PIXI.Container): void {
+    parent.addChildAt(this.atmosphere.overlay, 1);
+    this.atmosphere.ambientParticles.forEach(p => {
+      parent.addChild(p);
+    });
+  }
+
+  public setAtmosphereLevel(lineIndex: number, _totalLines: number): void {
+    const level = Math.min(lineIndex + 1, ATMOSPHERE_PRESETS.length - 1);
+    const preset = ATMOSPHERE_PRESETS[level];
+    this.atmosphere.targetColor = preset.color;
+    this.atmosphere.targetAlpha = preset.alpha;
+  }
+
+  private updateAtmosphere(): void {
+    const atm = this.atmosphere;
+
+    atm.currentAlpha += (atm.targetAlpha - atm.currentAlpha) * atm.transitionSpeed;
+
+    if (atm.currentAlpha > 0.001) {
+      atm.overlay.clear();
+      atm.overlay.beginFill(atm.targetColor, atm.currentAlpha);
+      atm.overlay.drawRect(0, 0, this.app.screen.width, this.app.screen.height);
+      atm.overlay.endFill();
+    }
+
+    const now = Date.now() / 1000;
+    atm.ambientParticles.forEach((sprite, i) => {
+      const data = atm.ambientParticleData[i];
+      sprite.x += data.vx;
+      sprite.y += data.vy;
+      sprite.alpha = atm.currentAlpha * (0.3 + Math.sin(now + data.phase) * 0.2);
+
+      if (sprite.y < -20) {
+        sprite.y = this.app.screen.height + 20;
+        sprite.x = Math.random() * this.app.screen.width;
+      }
+      if (sprite.x < -20) sprite.x = this.app.screen.width + 20;
+      if (sprite.x > this.app.screen.width + 20) sprite.x = -20;
+    });
+  }
+
+  public resetAtmosphere(): void {
+    this.atmosphere.targetAlpha = 0;
+    this.atmosphere.currentAlpha = 0;
+    this.atmosphere.overlay.clear();
+    this.atmosphere.ambientParticles.forEach(p => {
+      p.alpha = 0;
+    });
   }
 
   public createPageNote(text: string, lane: number, noteType: NoteType = 'tap', duration?: number, noteSpeed: number = 400): PIXI.Container {
@@ -374,6 +491,8 @@ export class EffectRenderer {
   }
 
   public update(_deltaTime: number): void {
+    this.updateAtmosphere();
+
     this.particles = this.particles.filter(particle => {
       particle.sprite.x += particle.vx;
       particle.sprite.y += particle.vy;
