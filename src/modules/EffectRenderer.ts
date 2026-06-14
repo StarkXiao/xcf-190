@@ -53,6 +53,12 @@ interface LayerState {
   baseIndex: number;
 }
 
+interface TextureCacheEntry {
+  texture: PIXI.Texture;
+  lastUsed: number;
+  refCount: number;
+}
+
 const ATMOSPHERE_PRESETS = [
   { color: 0x0a0a1a, alpha: 0 },
   { color: 0x1a0a3a, alpha: 0.15 },
@@ -89,6 +95,17 @@ export class EffectRenderer {
     baseIndex: 0
   };
 
+  private textureCache: Map<string, TextureCacheEntry> = new Map();
+  private ambientParticleTexture?: PIXI.Texture;
+  private bookPageTexture?: PIXI.Texture;
+  private particleBaseTexture?: PIXI.Texture;
+  private particleGlowTexture?: PIXI.Texture;
+  private readonly TEXTURE_STALE_MS = 5 * 60 * 1000;
+  private readonly MAX_TEXTURE_CACHE = 100;
+
+  private particleSpritePool: PIXI.Sprite[] = [];
+  private readonly MAX_PARTICLE_POOL = 300;
+
   constructor(app: PIXI.Application) {
     this.app = app;
     this.container = new PIXI.Container();
@@ -102,8 +119,133 @@ export class EffectRenderer {
     this.lyricContainer.y = 100;
     this.app.stage.addChild(this.lyricContainer);
 
+    this.precacheSharedTextures();
     this.atmosphere = this.createAtmosphere();
     this.resonance = this.createResonanceEffect();
+  }
+
+  private precacheSharedTextures(): void {
+    this.ambientParticleTexture = this.getCachedTexture('ambient-particle', () => {
+      const pg = new PIXI.Graphics();
+      const psize = 1.5 + Math.random() * 1.5;
+      pg.beginFill(0xffd700, 0);
+      pg.drawCircle(0, 0, psize);
+      pg.endFill();
+      return pg;
+    });
+
+    this.bookPageTexture = this.getCachedTexture('book-page', () => {
+      const bg = new PIXI.Graphics();
+      bg.beginFill(0xffffee, 0.9);
+      bg.drawRoundedRect(-15, -20, 30, 40, 3);
+      bg.endFill();
+      bg.lineStyle(1, 0xd4a574, 0.8);
+      bg.drawRoundedRect(-15, -20, 30, 40, 3);
+      bg.lineStyle(0.5, 0x8b7355, 0.4);
+      bg.moveTo(-12, -14);
+      bg.lineTo(12, -14);
+      bg.moveTo(-12, -6);
+      bg.lineTo(12, -6);
+      bg.moveTo(-12, 2);
+      bg.lineTo(12, 2);
+      bg.moveTo(-12, 10);
+      bg.lineTo(12, 10);
+      return bg;
+    });
+
+    this.particleBaseTexture = this.getCachedTexture('particle-base', () => {
+      const bp = new PIXI.Graphics();
+      bp.beginFill(0xffffff, 1);
+      bp.drawCircle(0, 0, 8);
+      bp.endFill();
+      return bp;
+    });
+
+    this.particleGlowTexture = this.getCachedTexture('particle-glow', () => {
+      const gp = new PIXI.Graphics();
+      gp.beginFill(0xffd700, 1);
+      gp.drawCircle(0, 0, 12);
+      gp.endFill();
+      return gp;
+    });
+  }
+
+  private getCachedTexture(key: string, factory: () => PIXI.Graphics): PIXI.Texture {
+    const cached = this.textureCache.get(key);
+    const now = Date.now();
+    if (cached) {
+      cached.lastUsed = now;
+      cached.refCount++;
+      return cached.texture;
+    }
+    const g = factory();
+    const texture = this.app.renderer.generateTexture(g);
+    g.destroy();
+    if (this.textureCache.size >= this.MAX_TEXTURE_CACHE) {
+      this.pruneTextureCache();
+    }
+    this.textureCache.set(key, { texture, lastUsed: now, refCount: 1 });
+    return texture;
+  }
+
+  private releaseCachedTexture(key: string): void {
+    const cached = this.textureCache.get(key);
+    if (cached) {
+      cached.refCount = Math.max(0, cached.refCount - 1);
+      cached.lastUsed = Date.now();
+    }
+  }
+
+  private pruneTextureCache(): void {
+    const now = Date.now();
+    const entries = [...this.textureCache.entries()]
+      .sort((a, b) => a[1].lastUsed - b[1].lastUsed);
+    let removed = 0;
+    for (const [key, entry] of entries) {
+      if (entry.refCount <= 0 && now - entry.lastUsed > this.TEXTURE_STALE_MS) {
+        entry.texture.destroy();
+        this.textureCache.delete(key);
+        removed++;
+        if (removed >= this.MAX_TEXTURE_CACHE / 4) break;
+      }
+    }
+    if (this.textureCache.size >= this.MAX_TEXTURE_CACHE) {
+      const oldest = entries[0];
+      if (oldest) {
+        oldest[1].texture.destroy();
+        this.textureCache.delete(oldest[0]);
+      }
+    }
+  }
+
+  private acquireParticleSprite(texture: PIXI.Texture): PIXI.Sprite {
+    const free = this.particleSpritePool.find(s => !s.parent && s.visible === false);
+    if (free) {
+      free.texture = texture;
+      free.anchor.set(0.5);
+      free.alpha = 1;
+      free.scale.set(1);
+      free.visible = true;
+      return free;
+    }
+    if (this.particleSpritePool.length >= this.MAX_PARTICLE_POOL) {
+      const victim = this.particleSpritePool.shift();
+      if (victim) {
+        if (victim.parent) victim.parent.removeChild(victim);
+        victim.destroy();
+      }
+    }
+    const sprite = new PIXI.Sprite(texture);
+    sprite.anchor.set(0.5);
+    this.particleSpritePool.push(sprite);
+    return sprite;
+  }
+
+  private releaseParticleSprite(sprite: PIXI.Sprite): void {
+    if (sprite.parent) {
+      sprite.parent.removeChild(sprite);
+    }
+    sprite.visible = false;
   }
 
   private drawDashedLine(
@@ -145,15 +287,10 @@ export class EffectRenderer {
     const ambientParticles: PIXI.Sprite[] = [];
     const ambientParticleData: { vx: number; vy: number; baseY: number; phase: number }[] = [];
 
-    for (let i = 0; i < 20; i++) {
-      const g = new PIXI.Graphics();
-      const size = 1 + Math.random() * 2;
-      g.beginFill(0xffd700, 0);
-      g.drawCircle(0, 0, size);
-      g.endFill();
+    const tex = this.ambientParticleTexture || PIXI.Texture.WHITE;
 
-      const texture = this.app.renderer.generateTexture(g);
-      const sprite = new PIXI.Sprite(texture);
+    for (let i = 0; i < 20; i++) {
+      const sprite = new PIXI.Sprite(tex);
       sprite.anchor.set(0.5);
       sprite.x = Math.random() * this.app.screen.width;
       sprite.y = Math.random() * this.app.screen.height;
@@ -194,25 +331,10 @@ export class EffectRenderer {
     const pages: PIXI.Sprite[] = [];
     const pageData: { angle: number; speed: number; rotationSpeed: number; baseY: number; amplitude: number; phase: number }[] = [];
 
-    for (let i = 0; i < 15; i++) {
-      const g = new PIXI.Graphics();
-      g.beginFill(0xffffee, 0.9);
-      g.drawRoundedRect(-15, -20, 30, 40, 3);
-      g.endFill();
-      g.lineStyle(1, 0xd4a574, 0.8);
-      g.drawRoundedRect(-15, -20, 30, 40, 3);
-      g.lineStyle(0.5, 0x8b7355, 0.4);
-      g.moveTo(-12, -14);
-      g.lineTo(12, -14);
-      g.moveTo(-12, -6);
-      g.lineTo(12, -6);
-      g.moveTo(-12, 2);
-      g.lineTo(12, 2);
-      g.moveTo(-12, 10);
-      g.lineTo(12, 10);
+    const tex = this.bookPageTexture || PIXI.Texture.WHITE;
 
-      const texture = this.app.renderer.generateTexture(g);
-      const sprite = new PIXI.Sprite(texture);
+    for (let i = 0; i < 15; i++) {
+      const sprite = new PIXI.Sprite(tex);
       sprite.anchor.set(0.5);
       sprite.alpha = 0;
       sprite.scale.set(0.8 + Math.random() * 0.4);
@@ -672,32 +794,50 @@ export class EffectRenderer {
     const resonanceBoost = 1 + this.resonanceIntensity * 0.8;
     const particleCount = Math.floor((noteType === 'tap' ? 12 : noteType === 'hold' ? 20 : 24) * resonanceBoost);
     const color = this.laneColors[lane % LANE_COUNT];
-    
+    const baseTex = this.particleBaseTexture || PIXI.Texture.WHITE;
+    const glowTex = this.particleGlowTexture || PIXI.Texture.WHITE;
+
     for (let i = 0; i < particleCount; i++) {
-      const graphics = new PIXI.Graphics();
       const baseSize = noteType === 'tap' ? 3 + Math.random() * 4 : 4 + Math.random() * 6;
       const size = baseSize * (1 + this.resonanceIntensity * 0.5);
-      
+      const scale = size / 8;
+
       if (this.resonanceIntensity > 0.3) {
-        graphics.beginFill(0xffd700, this.resonanceIntensity * 0.5);
-        graphics.drawCircle(0, 0, size * 1.5);
-        graphics.endFill();
+        const glow = this.acquireParticleSprite(glowTex);
+        glow.tint = 0xffd700;
+        glow.alpha = this.resonanceIntensity * 0.5;
+        glow.scale.set(scale * 1.5);
+        glow.x = x;
+        glow.y = y;
+        const angle = (Math.PI * 2 * i) / particleCount + Math.random() * 0.5;
+        const baseSpeed = noteType === 'tap' ? 2 + Math.random() * 4 : 3 + Math.random() * 5;
+        const speed = baseSpeed * resonanceBoost;
+        const useBurstLayer = this.layerState.currentZBoost > 0.3;
+        if (useBurstLayer) {
+          this.burstLayer.addChild(glow);
+        } else {
+          this.container.addChild(glow);
+        }
+        this.particles.push({
+          sprite: glow,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed - 2,
+          life: noteType === 'tap' ? 60 : 80,
+          maxLife: noteType === 'tap' ? 60 : 80
+        });
       }
-      
-      graphics.beginFill(color, 1);
-      graphics.drawCircle(0, 0, size);
-      graphics.endFill();
-      
-      const texture = this.app.renderer.generateTexture(graphics);
-      const sprite = new PIXI.Sprite(texture);
-      sprite.anchor.set(0.5);
+
+      const sprite = this.acquireParticleSprite(baseTex);
+      sprite.tint = color;
+      sprite.alpha = 1;
+      sprite.scale.set(scale);
       sprite.x = x;
       sprite.y = y;
-      
+
       const angle = (Math.PI * 2 * i) / particleCount + Math.random() * 0.5;
       const baseSpeed = noteType === 'tap' ? 2 + Math.random() * 4 : 3 + Math.random() * 5;
       const speed = baseSpeed * resonanceBoost;
-      
+
       const useBurstLayer = this.layerState.currentZBoost > 0.3;
       if (useBurstLayer) {
         this.burstLayer.addChild(sprite);
@@ -853,8 +993,7 @@ export class EffectRenderer {
       particle.sprite.scale.set(alpha);
       
       if (particle.life <= 0) {
-        this.container.removeChild(particle.sprite);
-        particle.sprite.texture.destroy();
+        this.releaseParticleSprite(particle.sprite);
         return false;
       }
       return true;
@@ -1054,14 +1193,23 @@ export class EffectRenderer {
     this.clearSlideTrails();
     this.resetAtmosphere();
     this.resetResonance();
+
+    this.releaseCachedTexture('ambient-particle');
+    this.releaseCachedTexture('book-page');
+    this.releaseCachedTexture('particle-base');
+    this.releaseCachedTexture('particle-glow');
   }
 
   public destroy(): void {
     this.particles.forEach(p => {
-      p.sprite.texture.destroy();
-      p.sprite.destroy();
+      this.releaseParticleSprite(p.sprite);
     });
     this.particles = [];
+    
+    this.particleSpritePool.forEach(s => {
+      s.destroy();
+    });
+    this.particleSpritePool = [];
     
     this.judgeEffects.forEach(e => {
       e.text.destroy();
@@ -1069,12 +1217,25 @@ export class EffectRenderer {
     this.judgeEffects = [];
     
     this.resonance.pages.forEach(p => {
-      p.texture.destroy();
       p.destroy();
     });
     this.resonance.glowRing.destroy();
     this.resonance.baseContainer.destroy();
     this.resonance.burstContainer.destroy();
+
+    this.textureCache.forEach(entry => {
+      entry.texture.destroy();
+    });
+    this.textureCache.clear();
+
+    this.ambientParticleTexture = undefined;
+    this.bookPageTexture = undefined;
+    this.particleBaseTexture = undefined;
+    this.particleGlowTexture = undefined;
+    
+    this.atmosphere.ambientParticles.forEach(p => {
+      p.destroy();
+    });
     
     this.clearHoldEffects();
     this.clearSlideTrails();

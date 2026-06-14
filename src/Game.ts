@@ -8,7 +8,7 @@ import { ScoreStorage } from './modules/ScoreStorage';
 import { LyricProgress } from './modules/LyricProgress';
 import { InputConfigManager } from './modules/InputConfigManager';
 import { BookResonance } from './modules/BookResonance';
-import { getSongById, getNotesForDifficulty } from './data/songs';
+import { getSongById, getNotesForDifficulty, songs } from './data/songs';
 import { ChartData, CharHitRecord, Difficulty, JudgeEvent, JudgeResult, LANE_COUNT, NoteData, NoteType, InputConfig, ResonanceState, PracticeConfig, DEFAULT_PRACTICE_CONFIG, BarInfo, PreloadedChart } from './types';
 
 interface NoteSprite {
@@ -180,6 +180,15 @@ export class Game {
     this.setupConfigListener();
     
     this.app.ticker.add(this.update.bind(this));
+    
+    this.preloadChart('love-poem', 'normal');
+    this.preloadAdjacentCharts('love-poem', 'normal');
+    const allDifficulties: Difficulty[] = ['easy', 'normal', 'hard'];
+    allDifficulties.forEach(d => {
+      if (d !== 'normal') {
+        this.preloadChart('love-poem', d);
+      }
+    });
     
     this.showStartScreen();
   }
@@ -1342,6 +1351,10 @@ export class Game {
     }
     
     this.startTime = performance.now();
+    setTimeout(() => {
+      this.preloadAdjacentCharts(songId, difficulty);
+      this.preloadAdjacentSongs(songId, difficulty);
+    }, 50);
   }
 
   private clearGameEndTimer(): void {
@@ -1380,6 +1393,11 @@ export class Game {
       this.releaseNoteSprite(sprite);
     });
     this.noteSprites.clear();
+
+    while (this.noteLayer.children.length > 0) {
+      const child = this.noteLayer.children[0];
+      this.noteLayer.removeChild(child);
+    }
     
     this.clearBarBoundaries();
     this.clearLoopIndicators();
@@ -1516,18 +1534,75 @@ export class Game {
 
   private backToStartScreen(): void {
     this.resetGame();
+    this.resultScreen.hide();
     this.showStartScreen();
   }
 
   private restartGame(): void {
+    if (!this.currentChart) {
+      this.backToStartScreen();
+      return;
+    }
+
+    const songId = this.currentChart.song.id;
+    const difficulty = this.currentChart.difficulty;
+
+    let preloaded = this.preloadedCharts.get(this.PRELOAD_KEY(songId, difficulty));
+    if (!preloaded) {
+      preloaded = this.preloadChart(songId, difficulty) || undefined;
+    }
+
     this.resetGame();
-    this.showStartScreen();
+    this.resultScreen.hide();
+
+    if (preloaded) {
+      const { song, notes, noteSpeed, poemLines } = preloaded;
+      const difficultyConfig = song.difficultyConfigs[difficulty];
+
+      this.currentChart = {
+        song,
+        difficulty,
+        notes,
+        noteSpeed,
+        poemLines
+      };
+
+      this.rhythmJudge.setConfig(noteSpeed, difficultyConfig.judgeTiming);
+      this.rhythmJudge.setBPM(song.bpm);
+      this.scoreSystem = new ScoreSystem(notes.length);
+
+      this.gameState = 'playing';
+      this.gameContainer.visible = true;
+
+      this.createSongInfoOverlay();
+      this.lyricProgress.initialize(notes, poemLines);
+      this.lyricProgress.setVisible(true);
+
+      this.rhythmJudge.setNotes(notes);
+      this.applyPracticeConfig();
+
+      if (this.practiceConfig.loopEnabled) {
+        const bars = this.rhythmJudge.getBars();
+        if (bars.length > 0) {
+          this.practiceConfig.loopStartBar = Math.max(0, Math.min(this.practiceConfig.loopStartBar, bars.length - 1));
+          this.practiceConfig.loopEndBar = Math.max(this.practiceConfig.loopStartBar, Math.min(this.practiceConfig.loopEndBar, bars.length - 1));
+          this.applyPracticeConfig();
+        }
+      }
+
+      this.startTime = performance.now();
+      this.preloadAdjacentCharts(songId, difficulty);
+    } else {
+      this.showStartScreen();
+    }
   }
 
   public preloadChart(songId: string, difficulty: Difficulty): PreloadedChart | null {
     const key = this.PRELOAD_KEY(songId, difficulty);
-    if (this.preloadedCharts.has(key)) {
-      return this.preloadedCharts.get(key)!;
+    const existing = this.preloadedCharts.get(key);
+    if (existing) {
+      existing.loadedAt = Date.now();
+      return existing;
     }
 
     const song = getSongById(songId);
@@ -1547,9 +1622,18 @@ export class Game {
 
     this.preloadedCharts.set(key, preloaded);
 
-    const staleThreshold = 5 * 60 * 1000;
+    if (this.preloadedCharts.size > this.MAX_PRELOAD_COUNT) {
+      const entries = [...this.preloadedCharts.entries()]
+        .sort((a, b) => a[1].loadedAt - b[1].loadedAt);
+      const removeCount = this.preloadedCharts.size - this.MAX_PRELOAD_COUNT;
+      for (let i = 0; i < removeCount && i < entries.length; i++) {
+        this.preloadedCharts.delete(entries[i][0]);
+      }
+    }
+
+    const staleThreshold = 10 * 60 * 1000;
     const now = Date.now();
-    for (const [k, v] of this.preloadedCharts) {
+    for (const [k, v] of [...this.preloadedCharts.entries()]) {
       if (now - v.loadedAt > staleThreshold) {
         this.preloadedCharts.delete(k);
       }
@@ -1569,6 +1653,30 @@ export class Game {
       this.preloadChart(currentSongId, difficulties[currentDiffIdx + 1]);
     }
   }
+
+  public preloadAdjacentSongs(currentSongId: string, currentDifficulty: Difficulty): void {
+    const currentIdx = songs.findIndex(s => s.id === currentSongId);
+    if (currentIdx < 0) return;
+    const count = songs.length;
+    const difficulties: Difficulty[] = ['easy', 'normal', 'hard'];
+    const diffIdx = difficulties.indexOf(currentDifficulty);
+    
+    const neighbors: number[] = [];
+    if (count > 1) neighbors.push((currentIdx + 1) % count);
+    if (count > 2) neighbors.push((currentIdx - 1 + count) % count);
+
+    neighbors.forEach((idx, depth) => {
+      const song = songs[idx];
+      if (!song) return;
+      setTimeout(() => {
+        this.preloadChart(song.id, currentDifficulty);
+        if (diffIdx > 0) this.preloadChart(song.id, difficulties[diffIdx - 1]);
+        if (diffIdx < difficulties.length - 1) this.preloadChart(song.id, difficulties[diffIdx + 1]);
+      }, depth * 150 + 100);
+    });
+  }
+
+  private readonly MAX_PRELOAD_COUNT = 12;
 
   public clearPreloadCache(): void {
     this.preloadedCharts.clear();
