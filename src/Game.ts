@@ -13,7 +13,7 @@ interface NoteSprite {
   noteData: NoteData;
 }
 
-type GameState = 'start' | 'playing' | 'result';
+type GameState = 'start' | 'playing' | 'paused' | 'result';
 
 interface RuntimeChart {
   song: ChartData;
@@ -43,7 +43,12 @@ export class Game {
   
   private startTime: number = 0;
   private currentTime: number = 0;
+  private pausedTime: number = 0;
+  private pauseStartTime: number = 0;
   private charRecords: CharHitRecord[] = [];
+  
+  private pauseMenu?: PIXI.Container;
+  private pauseButton?: PIXI.Container;
   
   private comboDisplay: PIXI.Text;
   private scoreDisplay: PIXI.Text;
@@ -133,6 +138,8 @@ export class Game {
     
     this.createLaneTouchAreas();
     this.createLaneHints();
+    this.createPauseButton();
+    this.createPauseMenu();
   }
 
   private createSongInfoOverlay(): void {
@@ -209,6 +216,125 @@ export class Game {
     }
   }
 
+  private createPauseButton(): void {
+    const buttonContainer = new PIXI.Container();
+    
+    const buttonBg = new PIXI.Graphics();
+    buttonBg.beginFill(0xffffff, 0.2);
+    buttonBg.drawRoundedRect(0, 0, 44, 44, 8);
+    buttonBg.endFill();
+    buttonBg.interactive = true;
+    buttonBg.cursor = 'pointer';
+    
+    buttonBg.on('pointerdown', () => {
+      if (this.gameState === 'playing') {
+        this.pauseGame();
+      }
+    });
+    
+    buttonContainer.addChild(buttonBg);
+    
+    const pauseIcon = new PIXI.Graphics();
+    pauseIcon.beginFill(0xffffff, 0.9);
+    pauseIcon.drawRect(14, 12, 5, 20);
+    pauseIcon.drawRect(25, 12, 5, 20);
+    pauseIcon.endFill();
+    buttonContainer.addChild(pauseIcon);
+    
+    buttonContainer.x = this.app.screen.width - 64;
+    buttonContainer.y = 60;
+    
+    this.pauseButton = buttonContainer;
+    this.uiLayer.addChild(buttonContainer);
+  }
+
+  private createPauseMenu(): void {
+    const menuContainer = new PIXI.Container();
+    menuContainer.visible = false;
+    
+    const mask = new PIXI.Graphics();
+    mask.beginFill(0x000000, 0.75);
+    mask.drawRect(0, 0, this.app.screen.width, this.app.screen.height);
+    mask.endFill();
+    menuContainer.addChild(mask);
+    
+    const titleStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 48,
+      fontWeight: 'bold',
+      fill: 0xffffff,
+      stroke: 0x000000,
+      strokeThickness: 4,
+      align: 'center'
+    });
+    
+    const title = new PIXI.Text('游戏暂停', titleStyle);
+    title.anchor.set(0.5);
+    title.x = this.app.screen.width / 2;
+    title.y = this.app.screen.height / 2 - 120;
+    menuContainer.addChild(title);
+    
+    const hintStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 18,
+      fill: 0xaaaaaa,
+      align: 'center'
+    });
+    
+    const hint = new PIXI.Text('按 ESC 或 空格 继续游戏', hintStyle);
+    hint.anchor.set(0.5);
+    hint.x = this.app.screen.width / 2;
+    hint.y = this.app.screen.height / 2 - 60;
+    menuContainer.addChild(hint);
+    
+    const buttonConfigs = [
+      { label: '继续游戏', y: this.app.screen.height / 2, color: 0x6b9dff, action: () => this.resumeGame() },
+      { label: '重新开始', y: this.app.screen.height / 2 + 80, color: 0xffd700, action: () => this.restartFromPause() },
+      { label: '返回主菜单', y: this.app.screen.height / 2 + 160, color: 0xff6b6b, action: () => this.backToStartFromPause() }
+    ];
+    
+    buttonConfigs.forEach(config => {
+      const button = this.createPauseButtonItem(config.label, config.color, config.action);
+      button.y = config.y;
+      menuContainer.addChild(button);
+    });
+    
+    this.pauseMenu = menuContainer;
+    this.uiLayer.addChild(menuContainer);
+  }
+
+  private createPauseButtonItem(label: string, color: number, onClick: () => void): PIXI.Container {
+    const buttonContainer = new PIXI.Container();
+    buttonContainer.x = this.app.screen.width / 2;
+    
+    const buttonBg = new PIXI.Graphics();
+    buttonBg.beginFill(color);
+    buttonBg.drawRoundedRect(-100, -28, 200, 56, 12);
+    buttonBg.endFill();
+    buttonBg.interactive = true;
+    buttonBg.cursor = 'pointer';
+    
+    buttonBg.on('pointerdown', onClick);
+    
+    buttonContainer.addChild(buttonBg);
+    
+    const buttonStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 22,
+      fontWeight: 'bold',
+      fill: 0xffffff,
+      stroke: 0x000000,
+      strokeThickness: 2,
+      align: 'center'
+    });
+    
+    const buttonText = new PIXI.Text(label, buttonStyle);
+    buttonText.anchor.set(0.5);
+    buttonContainer.addChild(buttonText);
+    
+    return buttonContainer;
+  }
+
   private createScoreDisplay(): PIXI.Text {
     const style = new PIXI.TextStyle({
       fontFamily: 'sans-serif',
@@ -230,6 +356,16 @@ export class Game {
 
   private setupInput(): void {
     window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' || e.key === ' ' || e.key === 'Spacebar') {
+        e.preventDefault();
+        if (this.gameState === 'playing') {
+          this.pauseGame();
+        } else if (this.gameState === 'paused') {
+          this.resumeGame();
+        }
+        return;
+      }
+      
       if (this.gameState !== 'playing') return;
       
       const lane = this.keyMap[e.key];
@@ -309,7 +445,7 @@ export class Game {
   private update(delta: number): void {
     if (this.gameState !== 'playing') return;
     
-    this.currentTime = performance.now() - this.startTime;
+    this.currentTime = performance.now() - this.startTime - this.pausedTime;
     
     const missEvents = this.rhythmJudge.update(this.currentTime);
     missEvents.forEach(event => this.processJudgeEvent(event));
@@ -397,6 +533,8 @@ export class Game {
 
   private resetGame(): void {
     this.currentTime = 0;
+    this.pausedTime = 0;
+    this.pauseStartTime = 0;
     this.charRecords = [];
     
     this.rhythmJudge.reset();
@@ -411,7 +549,62 @@ export class Game {
     });
     this.noteSprites.clear();
     
+    this.hidePauseMenu();
     this.updateUI();
+  }
+
+  private pauseGame(): void {
+    if (this.gameState !== 'playing') return;
+    
+    this.gameState = 'paused';
+    this.pauseStartTime = performance.now();
+    this.showPauseMenu();
+  }
+
+  private resumeGame(): void {
+    if (this.gameState !== 'paused') return;
+    
+    this.pausedTime += performance.now() - this.pauseStartTime;
+    this.pauseStartTime = 0;
+    this.gameState = 'playing';
+    this.hidePauseMenu();
+  }
+
+  private showPauseMenu(): void {
+    if (this.pauseMenu) {
+      this.pauseMenu.visible = true;
+    }
+    if (this.pauseButton) {
+      this.pauseButton.visible = false;
+    }
+  }
+
+  private hidePauseMenu(): void {
+    if (this.pauseMenu) {
+      this.pauseMenu.visible = false;
+    }
+    if (this.pauseButton) {
+      this.pauseButton.visible = true;
+    }
+  }
+
+  private restartFromPause(): void {
+    if (!this.currentChart) return;
+    
+    this.hidePauseMenu();
+    this.resetGame();
+    
+    const notes = this.currentChart.notes;
+    this.rhythmJudge.setNotes(notes);
+    
+    this.gameState = 'playing';
+    this.startTime = performance.now();
+  }
+
+  private backToStartFromPause(): void {
+    this.hidePauseMenu();
+    this.resetGame();
+    this.showStartScreen();
   }
 
   private endGame(): void {
