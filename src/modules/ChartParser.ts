@@ -1,14 +1,26 @@
-import { ChartData, NoteData } from '../types';
+import { ChartData, Difficulty, NoteData, DIFFICULTY_CONFIGS } from '../types';
+import { getNotesForDifficulty } from '../data/songs';
 
 export class ChartParser {
   private chart: ChartData;
+  private difficulty: Difficulty = 'normal';
+  private cachedNotes?: NoteData[];
 
-  constructor(chart: ChartData) {
+  constructor(chart: ChartData, difficulty: Difficulty = 'normal') {
     this.chart = chart;
+    this.difficulty = difficulty;
+  }
+
+  public setDifficulty(difficulty: Difficulty): void {
+    this.difficulty = difficulty;
+    this.cachedNotes = undefined;
   }
 
   public getNotes(): NoteData[] {
-    return [...this.chart.notes].sort((a, b) => a.time - b.time);
+    if (!this.cachedNotes) {
+      this.cachedNotes = getNotesForDifficulty(this.chart, this.difficulty);
+    }
+    return [...this.cachedNotes];
   }
 
   public getBPM(): number {
@@ -16,11 +28,15 @@ export class ChartParser {
   }
 
   public getNoteSpeed(): number {
-    return this.chart.noteSpeed;
+    return this.chart.difficultyConfigs[this.difficulty]?.noteSpeed || DIFFICULTY_CONFIGS.normal.noteSpeed;
   }
 
   public getTitle(): string {
     return this.chart.title;
+  }
+
+  public getArtist(): string {
+    return this.chart.artist || '';
   }
 
   public getLyrics(): string {
@@ -28,19 +44,20 @@ export class ChartParser {
   }
 
   public getNoteCount(): number {
-    return this.chart.notes.length;
+    return this.getNotes().length;
   }
 
   public getTotalDuration(): number {
-    if (this.chart.notes.length === 0) return 0;
-    const lastNote = this.chart.notes.reduce((prev, curr) => 
+    const notes = this.getNotes();
+    if (notes.length === 0) return 0;
+    const lastNote = notes.reduce((prev, curr) => 
       curr.time > prev.time ? curr : prev
     );
     return lastNote.time + 2000;
   }
 
   public getNotesInTimeRange(startTime: number, endTime: number): NoteData[] {
-    return this.chart.notes.filter(
+    return this.getNotes().filter(
       note => note.time >= startTime && note.time <= endTime
     );
   }
@@ -64,20 +81,5 @@ export class ChartParser {
     }
 
     return notes;
-  }
-
-  public static createChartFromLyrics(
-    title: string,
-    lyrics: string,
-    bpm: number = 120,
-    noteSpeed: number = 400
-  ): ChartData {
-    return {
-      title,
-      bpm,
-      noteSpeed,
-      lyrics,
-      notes: ChartParser.generateNotesFromLyrics(lyrics, bpm)
-    };
   }
 }

@@ -1,4 +1,4 @@
-import { NoteData, JudgeResult, JudgeEvent, JUDGE_TIMING, LANE_COUNT } from '../types';
+import { NoteData, JudgeResult, JudgeEvent, DEFAULT_JUDGE_TIMING, JudgeTiming, LANE_COUNT } from '../types';
 
 interface ActiveNote extends NoteData {
   id: number;
@@ -13,10 +13,19 @@ export class RhythmJudge {
   private currentTime: number = 0;
   private noteSpeed: number = 400;
   private judgeLineY: number = 600;
+  private judgeTiming: JudgeTiming = DEFAULT_JUDGE_TIMING;
 
-  constructor(noteSpeed: number, judgeLineY: number) {
+  constructor(noteSpeed: number, judgeLineY: number, judgeTiming?: JudgeTiming) {
     this.noteSpeed = noteSpeed;
     this.judgeLineY = judgeLineY;
+    if (judgeTiming) {
+      this.judgeTiming = judgeTiming;
+    }
+  }
+
+  public setConfig(noteSpeed: number, judgeTiming: JudgeTiming): void {
+    this.noteSpeed = noteSpeed;
+    this.judgeTiming = judgeTiming;
   }
 
   public setNotes(notes: NoteData[]): void {
@@ -38,7 +47,7 @@ export class RhythmJudge {
       const timeUntilJudge = note.time - currentTime;
       note.y = this.judgeLineY - (timeUntilJudge / 1000) * this.noteSpeed;
 
-      if (timeUntilJudge < -JUDGE_TIMING.miss && !note.isJudged) {
+      if (timeUntilJudge < -this.judgeTiming.miss && !note.isJudged) {
         note.isJudged = true;
         note.judgeResult = 'miss';
         events.push({
@@ -82,7 +91,7 @@ export class RhythmJudge {
       .filter(note => 
         !note.isJudged && 
         note.lane === lane &&
-        Math.abs(note.time - this.currentTime) <= JUDGE_TIMING.miss
+        Math.abs(note.time - this.currentTime) <= this.judgeTiming.miss
       )
       .sort((a, b) => Math.abs(a.time - this.currentTime) - Math.abs(b.time - this.currentTime));
 
@@ -90,10 +99,10 @@ export class RhythmJudge {
   }
 
   private getJudgeResult(timeDiff: number): JudgeResult | null {
-    if (timeDiff <= JUDGE_TIMING.perfect) return 'perfect';
-    if (timeDiff <= JUDGE_TIMING.great) return 'great';
-    if (timeDiff <= JUDGE_TIMING.good) return 'good';
-    if (timeDiff <= JUDGE_TIMING.miss) return 'miss';
+    if (timeDiff <= this.judgeTiming.perfect) return 'perfect';
+    if (timeDiff <= this.judgeTiming.great) return 'great';
+    if (timeDiff <= this.judgeTiming.good) return 'good';
+    if (timeDiff <= this.judgeTiming.miss) return 'miss';
     return null;
   }
 

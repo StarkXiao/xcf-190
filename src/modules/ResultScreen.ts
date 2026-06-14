@@ -13,7 +13,14 @@ export class ResultScreen {
     this.app.stage.addChild(this.container);
   }
 
-  public show(score: ScoreData, _poemLines: string[], charRecords: CharHitRecord[]): void {
+  public show(
+    score: ScoreData,
+    _poemLines: string[],
+    charRecords: CharHitRecord[],
+    _songId?: string,
+    _difficulty?: string,
+    isNewRecord?: boolean
+  ): void {
     this.container.visible = true;
     this.container.removeChildren();
     
@@ -25,8 +32,64 @@ export class ResultScreen {
     
     this.createPoemDisplay(charRecords);
     this.createScoreDisplay(score);
+    if (isNewRecord) {
+      this.createNewRecordBadge();
+    }
     this.createRestartButton();
     this.animateIn();
+  }
+
+  private createNewRecordBadge(): void {
+    const badgeContainer = new PIXI.Container();
+    badgeContainer.x = this.app.screen.width / 2;
+    badgeContainer.y = this.app.screen.height / 2 - 10;
+    badgeContainer.rotation = -0.2;
+
+    const badgeBg = new PIXI.Graphics();
+    badgeBg.beginFill(0xffd700);
+    badgeBg.lineStyle(4, 0xff8c00, 1);
+    badgeBg.drawRoundedRect(-100, -25, 200, 50, 10);
+    badgeBg.endFill();
+    badgeContainer.addChild(badgeBg);
+
+    const badgeStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 24,
+      fontWeight: 'bold',
+      fill: 0x8b4513,
+      stroke: 0xffffff,
+      strokeThickness: 2,
+      align: 'center'
+    });
+
+    const badgeText = new PIXI.Text('★ NEW RECORD! ★', badgeStyle);
+    badgeText.anchor.set(0.5);
+    badgeContainer.addChild(badgeText);
+
+    badgeContainer.scale.set(0);
+    badgeContainer.alpha = 0;
+    this.container.addChild(badgeContainer);
+
+    setTimeout(() => {
+      const startTime = Date.now();
+      const duration = 800;
+      
+      const animate = () => {
+        const elapsed = Date.now() - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        const eased = 1 - Math.pow(1 - progress, 3);
+        
+        badgeContainer.scale.set(eased);
+        badgeContainer.alpha = eased;
+        badgeContainer.rotation = -0.2 + Math.sin(elapsed / 100) * 0.05;
+        
+        if (progress < 1) {
+          requestAnimationFrame(animate);
+        }
+      };
+      
+      animate();
+    }, 1500);
   }
 
   private createPoemDisplay(charRecords: CharHitRecord[]): void {

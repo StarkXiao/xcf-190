@@ -1,12 +1,12 @@
 import * as PIXI from 'pixi.js';
-import { ChartParser } from './modules/ChartParser';
 import { RhythmJudge } from './modules/RhythmJudge';
 import { ScoreSystem } from './modules/ScoreSystem';
 import { EffectRenderer } from './modules/EffectRenderer';
 import { ResultScreen } from './modules/ResultScreen';
 import { StartScreen } from './modules/StartScreen';
-import { sampleChart, lovePoemLines } from './data/sampleChart';
-import { JudgeEvent, LANE_COUNT, NoteData, CharHitRecord } from './types';
+import { ScoreStorage } from './modules/ScoreStorage';
+import { getSongById, getNotesForDifficulty } from './data/songs';
+import { ChartData, CharHitRecord, Difficulty, JudgeEvent, JudgeResult, LANE_COUNT, NoteData } from './types';
 
 interface NoteSprite {
   container: PIXI.Container;
@@ -15,12 +15,21 @@ interface NoteSprite {
 
 type GameState = 'start' | 'playing' | 'result';
 
+interface RuntimeChart {
+  song: ChartData;
+  difficulty: Difficulty;
+  notes: NoteData[];
+  noteSpeed: number;
+  poemLines: string[];
+}
+
 export class Game {
   private app: PIXI.Application;
   private container: HTMLElement;
   private gameState: GameState = 'start';
   
-  private chartParser: ChartParser;
+  private currentChart?: RuntimeChart;
+  
   private rhythmJudge: RhythmJudge;
   private scoreSystem: ScoreSystem;
   private effectRenderer: EffectRenderer;
@@ -38,6 +47,7 @@ export class Game {
   
   private comboDisplay: PIXI.Text;
   private scoreDisplay: PIXI.Text;
+  private songInfoDisplay?: PIXI.Container;
   private laneWidth: number;
   private judgeLineY: number = 600;
   
@@ -67,12 +77,22 @@ export class Game {
     
     this.container.appendChild(this.app.view as HTMLCanvasElement);
     
-    this.chartParser = new ChartParser(sampleChart);
+    const defaultSong = getSongById('love-poem')!;
+    const defaultNotes = getNotesForDifficulty(defaultSong, 'normal');
+    this.currentChart = {
+      song: defaultSong,
+      difficulty: 'normal',
+      notes: defaultNotes,
+      noteSpeed: defaultSong.difficultyConfigs.normal.noteSpeed,
+      poemLines: defaultSong.poemLines
+    };
+    
     this.rhythmJudge = new RhythmJudge(
-      this.chartParser.getNoteSpeed(),
-      this.judgeLineY
+      defaultSong.difficultyConfigs.normal.noteSpeed,
+      this.judgeLineY,
+      defaultSong.difficultyConfigs.normal.judgeTiming
     );
-    this.scoreSystem = new ScoreSystem(this.chartParser.getNoteCount());
+    this.scoreSystem = new ScoreSystem(defaultNotes.length);
     
     this.effectRenderer = new EffectRenderer(this.app);
     this.resultScreen = new ResultScreen(this.app);
@@ -113,6 +133,35 @@ export class Game {
     
     this.createLaneTouchAreas();
     this.createLaneHints();
+  }
+
+  private createSongInfoOverlay(): void {
+    if (this.songInfoDisplay) {
+      this.uiLayer.removeChild(this.songInfoDisplay);
+      this.songInfoDisplay.destroy();
+    }
+    
+    if (!this.currentChart) return;
+    
+    this.songInfoDisplay = new PIXI.Container();
+    
+    const infoText = `${this.currentChart.song.title}  |  BPM: ${this.currentChart.song.bpm}  |  ${this.currentChart.song.difficultyConfigs[this.currentChart.difficulty].label}`;
+    const style = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 16,
+      fill: 0xaaaaaa,
+      stroke: 0x000000,
+      strokeThickness: 2,
+      align: 'left'
+    });
+    
+    const text = new PIXI.Text(infoText, style);
+    text.anchor.set(0, 0);
+    text.x = 20;
+    text.y = 20;
+    this.songInfoDisplay.addChild(text);
+    
+    this.uiLayer.addChild(this.songInfoDisplay);
   }
 
   private createLaneTouchAreas(): void {
@@ -226,8 +275,8 @@ export class Game {
   }
 
   private setupCallbacks(): void {
-    this.startScreen.setOnStartCallback(() => {
-      this.startGame();
+    this.startScreen.setOnStartCallback((songId: string, difficulty: Difficulty) => {
+      this.startGame(songId, difficulty);
     });
     
     this.resultScreen.setOnRestartCallback(() => {
@@ -245,7 +294,7 @@ export class Game {
     this.charRecords.push({
       char: event.lyricChar,
       hit,
-      result: event.result
+      result: event.result as JudgeResult
     });
     this.effectRenderer.addLyricChar(event.lyricChar, this.charRecords.length - 1, hit);
     
@@ -316,14 +365,31 @@ export class Game {
     this.startScreen.show();
   }
 
-  private startGame(): void {
+  private startGame(songId: string, difficulty: Difficulty): void {
+    const song = getSongById(songId);
+    if (!song) return;
+    
+    const notes = getNotesForDifficulty(song, difficulty);
+    const difficultyConfig = song.difficultyConfigs[difficulty];
+    
+    this.currentChart = {
+      song,
+      difficulty,
+      notes,
+      noteSpeed: difficultyConfig.noteSpeed,
+      poemLines: song.poemLines
+    };
+    
+    this.rhythmJudge.setConfig(difficultyConfig.noteSpeed, difficultyConfig.judgeTiming);
+    this.scoreSystem = new ScoreSystem(notes.length);
+    
     this.gameState = 'playing';
     this.startScreen.hide();
     this.gameContainer.visible = true;
     
     this.resetGame();
+    this.createSongInfoOverlay();
     
-    const notes = this.chartParser.getNotes();
     this.rhythmJudge.setNotes(notes);
     
     this.startTime = performance.now();
@@ -334,7 +400,9 @@ export class Game {
     this.charRecords = [];
     
     this.rhythmJudge.reset();
-    this.scoreSystem.reset();
+    if (this.scoreSystem) {
+      this.scoreSystem.reset();
+    }
     this.effectRenderer.clearLitCharacters();
     
     this.noteSprites.forEach(sprite => {
@@ -351,7 +419,30 @@ export class Game {
     this.gameContainer.visible = false;
     
     const score = this.scoreSystem.getScore();
-    this.resultScreen.show(score, lovePoemLines, this.charRecords);
+    
+    let isNewRecord = false;
+    if (this.currentChart) {
+      isNewRecord = ScoreStorage.isNewBestScore(
+        this.currentChart.song.id,
+        this.currentChart.difficulty,
+        score
+      );
+      ScoreStorage.saveBestScore(
+        this.currentChart.song.id,
+        this.currentChart.difficulty,
+        score
+      );
+    }
+    
+    const poemLines = this.currentChart?.poemLines || [];
+    this.resultScreen.show(
+      score,
+      poemLines,
+      this.charRecords,
+      this.currentChart?.song.id,
+      this.currentChart?.difficulty,
+      isNewRecord
+    );
   }
 
   private restartGame(): void {
