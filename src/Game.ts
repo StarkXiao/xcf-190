@@ -27,12 +27,20 @@ interface RuntimeChart {
   poemLines: string[];
 }
 
+type TouchGestureType = 'unknown' | 'tap' | 'hold' | 'swipe';
+
 interface TouchInfo {
   pointerId: number;
   startLane: number;
   currentLane: number;
   startX: number;
   currentX: number;
+  startY: number;
+  startTime: number;
+  gestureType: TouchGestureType;
+  isGestureDetermined: boolean;
+  holdTimer?: number;
+  inputTriggered: boolean;
 }
 
 export class Game {
@@ -72,6 +80,9 @@ export class Game {
   
   private keyMap: Record<string, number>;
   private laneHintTexts: PIXI.Text[] = [];
+  private swipeThreshold: number;
+  private holdThreshold: number;
+  private gestureEnabled: Record<string, boolean> = {};
   
   private pressedKeys: Set<number> = new Set();
   private laneTouchAreas: PIXI.Graphics[] = [];
@@ -85,6 +96,9 @@ export class Game {
     
     this.inputConfigManager = InputConfigManager.getInstance();
     this.keyMap = this.inputConfigManager.getKeyMap();
+    this.swipeThreshold = this.inputConfigManager.getSwipeThreshold();
+    this.holdThreshold = this.inputConfigManager.getHoldThreshold();
+    this.updateGestureEnabled();
     
     const width = Math.min(window.innerWidth, 720);
     const height = Math.min(window.innerHeight, 1080);
@@ -205,15 +219,32 @@ export class Game {
       
       area.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
         if (this.gameState === 'playing') {
+          const now = performance.now();
           const touchInfo: TouchInfo = {
             pointerId: e.pointerId,
             startLane: i,
             currentLane: i,
             startX: e.global.x,
-            currentX: e.global.x
+            currentX: e.global.x,
+            startY: e.global.y,
+            startTime: now,
+            gestureType: 'unknown',
+            isGestureDetermined: false,
+            inputTriggered: false
           };
+          
+          if (this.isGestureEnabled('hold')) {
+            touchInfo.holdTimer = window.setTimeout(() => {
+              if (!touchInfo.isGestureDetermined && this.activeTouches.has(e.pointerId)) {
+                touchInfo.gestureType = 'hold';
+                touchInfo.isGestureDetermined = true;
+                touchInfo.inputTriggered = true;
+                this.handleInput(i, true);
+              }
+            }, this.holdThreshold);
+          }
+          
           this.activeTouches.set(e.pointerId, touchInfo);
-          this.handleInput(i, true);
         }
       });
       
@@ -222,46 +253,98 @@ export class Game {
         const touch = this.activeTouches.get(e.pointerId);
         if (!touch) return;
         
+        touch.currentX = e.global.x;
+        const deltaX = e.global.x - touch.startX;
+        const absDeltaX = Math.abs(deltaX);
+        
+        if (!touch.isGestureDetermined) {
+          if (absDeltaX >= this.swipeThreshold && this.isGestureEnabled('swipe')) {
+            touch.isGestureDetermined = true;
+            touch.gestureType = 'swipe';
+            
+            if (touch.holdTimer !== undefined) {
+              clearTimeout(touch.holdTimer);
+              touch.holdTimer = undefined;
+            }
+            
+            const direction = deltaX > 0 ? 'right' : 'left';
+            if (this.isGestureEnabled('swipe', direction)) {
+              const slideNote = this.rhythmJudge.getActiveNotes().find(n => 
+                n.type === 'slide' && 
+                n.lane === touch.startLane &&
+                n.slideStartTime === undefined &&
+                !n.isJudged
+              );
+              
+              if (slideNote) {
+                touch.inputTriggered = true;
+                this.handleInput(touch.startLane, true);
+              }
+            }
+          }
+        }
+        
         const newLane = Math.floor(e.global.x / this.laneWidth);
         if (newLane >= 0 && newLane < LANE_COUNT && newLane !== touch.currentLane) {
-          const slideEvent = this.rhythmJudge.handleSlideMove(touch.currentLane, newLane);
-          if (slideEvent) {
-            this.processJudgeEvent(slideEvent);
-            this.effectRenderer.addSlideTrail(
-              touch.currentLane * this.laneWidth + this.laneWidth / 2,
-              newLane * this.laneWidth + this.laneWidth / 2,
-              this.judgeLineY,
-              touch.currentLane
-            );
+          if (touch.gestureType === 'swipe' || touch.isGestureDetermined) {
+            const slideEvent = this.rhythmJudge.handleSlideMove(touch.currentLane, newLane);
+            if (slideEvent) {
+              this.processJudgeEvent(slideEvent);
+              this.effectRenderer.addSlideTrail(
+                touch.currentLane * this.laneWidth + this.laneWidth / 2,
+                newLane * this.laneWidth + this.laneWidth / 2,
+                this.judgeLineY,
+                touch.currentLane
+              );
+            }
           }
           touch.currentLane = newLane;
         }
-        touch.currentX = e.global.x;
       });
       
       area.on('pointerup', (e: PIXI.FederatedPointerEvent) => {
-        if (this.gameState === 'playing') {
-          const touch = this.activeTouches.get(e.pointerId);
-          if (touch) {
-            this.handleInput(touch.currentLane, false);
-            this.activeTouches.delete(e.pointerId);
-          }
-        }
+        this.handleTouchEnd(e.pointerId);
       });
       
       area.on('pointerout', (e: PIXI.FederatedPointerEvent) => {
-        if (this.gameState === 'playing') {
-          const touch = this.activeTouches.get(e.pointerId);
-          if (touch) {
-            this.handleInput(touch.currentLane, false);
-            this.activeTouches.delete(e.pointerId);
-          }
-        }
+        this.handleTouchEnd(e.pointerId);
       });
       
       this.laneTouchAreas.push(area);
       this.gameContainer.addChild(area);
     }
+  }
+
+  private handleTouchEnd(pointerId: number): void {
+    if (this.gameState !== 'playing') return;
+    
+    const touch = this.activeTouches.get(pointerId);
+    if (!touch) return;
+    
+    if (touch.holdTimer !== undefined) {
+      clearTimeout(touch.holdTimer);
+      touch.holdTimer = undefined;
+    }
+    
+    if (!touch.isGestureDetermined && this.isGestureEnabled('tap')) {
+      touch.gestureType = 'tap';
+      touch.isGestureDetermined = true;
+      touch.inputTriggered = true;
+      this.handleInput(touch.currentLane, true);
+      setTimeout(() => {
+        if (this.activeTouches.has(pointerId)) {
+          this.handleInput(touch.currentLane, false);
+          this.activeTouches.delete(pointerId);
+        }
+      }, 10);
+      return;
+    }
+    
+    if (touch.inputTriggered) {
+      this.handleInput(touch.currentLane, false);
+    }
+    
+    this.activeTouches.delete(pointerId);
   }
 
   private createLaneHints(): void {
@@ -324,8 +407,31 @@ export class Game {
   private setupConfigListener(): void {
     this.removeConfigListener = this.inputConfigManager.addChangeListener((config: InputConfig) => {
       this.keyMap = { ...config.keyMap };
+      this.swipeThreshold = config.swipeThreshold;
+      this.holdThreshold = config.holdThreshold;
+      this.updateGestureEnabled();
       this.updateLaneHints();
     });
+  }
+
+  private updateGestureEnabled(): void {
+    const gestures = this.inputConfigManager.getGestures();
+    this.gestureEnabled = {};
+    gestures.forEach(g => {
+      let key = g.gesture;
+      if (g.direction) {
+        key += '_' + g.direction;
+      }
+      this.gestureEnabled[key] = true;
+    });
+  }
+
+  private isGestureEnabled(gesture: string, direction?: string): boolean {
+    let key = gesture;
+    if (direction) {
+      key += '_' + direction;
+    }
+    return this.gestureEnabled[key] !== false;
   }
 
   private createPauseButton(): void {
@@ -736,6 +842,12 @@ export class Game {
     this.pauseStartTime = 0;
     this.charRecords = [];
     this.pressedKeys.clear();
+    
+    this.activeTouches.forEach(touch => {
+      if (touch.holdTimer !== undefined) {
+        clearTimeout(touch.holdTimer);
+      }
+    });
     this.activeTouches.clear();
     
     this.rhythmJudge.reset();
