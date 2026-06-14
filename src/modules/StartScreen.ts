@@ -344,6 +344,7 @@ export class StartScreen {
     selected: boolean
   ): void {
     button.clear();
+    button.removeChildren();
 
     if (selected) {
       button.lineStyle(4, 0xffffff, 1);
