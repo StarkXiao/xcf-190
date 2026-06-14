@@ -1,6 +1,7 @@
 import * as PIXI from 'pixi.js';
 import { ScoreData, CharHitRecord, NoteType, NoteTypeStats, Difficulty, BestScore } from '../types';
 import { ScoreStorage } from './ScoreStorage';
+import { SongWithUnlock } from '../data/songs';
 
 const NOTE_TYPE_LABELS: Record<NoteType, string> = {
   tap: '点击',
@@ -63,7 +64,8 @@ export class ResultScreen {
     previousBest?: BestScore | null,
     accuracy: number = 0,
     isPractice: boolean = false,
-    practiceSpeed: number = 1.0
+    practiceSpeed: number = 1.0,
+    newlyUnlockedSongs: SongWithUnlock[] = []
   ): void {
     this.animationComplete = false;
     this.pendingAction = undefined;
@@ -92,6 +94,9 @@ export class ResultScreen {
     }
     if (isPractice) {
       this.createPracticeModeBadge(practiceSpeed);
+    }
+    if (newlyUnlockedSongs && newlyUnlockedSongs.length > 0) {
+      this.createUnlockNotification(newlyUnlockedSongs);
     }
     this.createSongInfoFooter(songId, difficulty, isPractice);
     this.createMiniLeaderboardButton(songId, difficulty);
@@ -157,6 +162,136 @@ export class ResultScreen {
       };
       animate();
     }, 300);
+  }
+
+  private createUnlockNotification(unlockedSongs: SongWithUnlock[]): void {
+    if (unlockedSongs.length === 0) return;
+
+    const notificationContainer = new PIXI.Container();
+    notificationContainer.x = this.app.screen.width / 2;
+    notificationContainer.y = 130;
+
+    const totalWidth = 420;
+    const cardHeight = 60 + unlockedSongs.length * 50;
+
+    const bg = new PIXI.Graphics();
+    bg.beginFill(0x1a3a1a, 0.95);
+    bg.lineStyle(3, 0xffd700, 1);
+    bg.drawRoundedRect(-totalWidth / 2, -cardHeight / 2, totalWidth, cardHeight, 16);
+    bg.endFill();
+    notificationContainer.addChild(bg);
+
+    const sparkleCount = 8;
+    for (let i = 0; i < sparkleCount; i++) {
+      const angle = (i / sparkleCount) * Math.PI * 2;
+      const radius = totalWidth / 2 + 8;
+      const spark = new PIXI.Graphics();
+      spark.beginFill(0xffd700, 0.8);
+      spark.drawCircle(0, 0, 3);
+      spark.endFill();
+      spark.x = Math.cos(angle) * radius;
+      spark.y = Math.sin(angle) * (cardHeight / 2 + 8);
+      spark.name = `spark_${i}`;
+      notificationContainer.addChild(spark);
+    }
+
+    const headerStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 20,
+      fontWeight: 'bold',
+      fill: 0xffd700,
+      stroke: 0x000000,
+      strokeThickness: 3,
+      align: 'center'
+    });
+    const header = new PIXI.Text('🎉 新诗篇解锁！', headerStyle);
+    header.anchor.set(0.5);
+    header.y = -cardHeight / 2 + 28;
+    notificationContainer.addChild(header);
+
+    unlockedSongs.forEach((song, index) => {
+      const songY = -cardHeight / 2 + 58 + index * 50;
+
+      const songBg = new PIXI.Graphics();
+      songBg.beginFill(0x6bff9d, 0.15);
+      songBg.lineStyle(1, 0x6bff9d, 0.5);
+      songBg.drawRoundedRect(-totalWidth / 2 + 20, songY - 18, totalWidth - 40, 40, 8);
+      songBg.endFill();
+      notificationContainer.addChild(songBg);
+
+      const unlockIconStyle = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 18,
+        align: 'center'
+      });
+      const unlockIcon = new PIXI.Text('🔓', unlockIconStyle);
+      unlockIcon.anchor.set(0, 0.5);
+      unlockIcon.x = -totalWidth / 2 + 32;
+      unlockIcon.y = songY + 2;
+      notificationContainer.addChild(unlockIcon);
+
+      const songTitleStyle = new PIXI.TextStyle({
+        fontFamily: 'serif',
+        fontSize: 18,
+        fontWeight: 'bold',
+        fill: 0xffffff,
+        stroke: 0x000000,
+        strokeThickness: 1,
+        align: 'left'
+      });
+      const songTitle = new PIXI.Text(song.title, songTitleStyle);
+      songTitle.anchor.set(0, 0.5);
+      songTitle.x = -totalWidth / 2 + 62;
+      songTitle.y = songY + 2;
+      notificationContainer.addChild(songTitle);
+
+      const artistStyle = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 12,
+        fill: 0x88ccaa,
+        align: 'right'
+      });
+      const artistText = new PIXI.Text(song.artist, artistStyle);
+      artistText.anchor.set(1, 0.5);
+      artistText.x = totalWidth / 2 - 20;
+      artistText.y = songY + 2;
+      notificationContainer.addChild(artistText);
+    });
+
+    notificationContainer.scale.set(0);
+    notificationContainer.alpha = 0;
+    this.container.addChild(notificationContainer);
+
+    setTimeout(() => {
+      const startTime = Date.now();
+      const duration = 800;
+      const animate = () => {
+        const elapsed = Date.now() - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        const eased = 1 - Math.pow(1 - progress, 3);
+
+        notificationContainer.scale.set(eased);
+        notificationContainer.alpha = eased;
+        notificationContainer.rotation = (1 - eased) * 0.15;
+
+        for (let i = 0; i < sparkleCount; i++) {
+          const spark = notificationContainer.getChildByName(`spark_${i}`) as PIXI.Graphics;
+          if (spark) {
+            const angle = (i / sparkleCount) * Math.PI * 2 + elapsed / 500;
+            const baseRadius = totalWidth / 2 + 8;
+            const pulseRadius = baseRadius + Math.sin(elapsed / 150 + i) * 4;
+            spark.x = Math.cos(angle) * pulseRadius;
+            spark.y = Math.sin(angle) * (cardHeight / 2 + 8 + Math.sin(elapsed / 150 + i) * 4);
+            spark.alpha = 0.5 + Math.sin(elapsed / 200 + i * 0.8) * 0.5;
+          }
+        }
+
+        if (progress < 1 || elapsed < duration + 2000) {
+          requestAnimationFrame(animate);
+        }
+      };
+      animate();
+    }, 1200);
   }
 
   private createNewRecordBadge(): void {

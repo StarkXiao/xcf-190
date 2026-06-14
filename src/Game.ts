@@ -8,7 +8,8 @@ import { ScoreStorage } from './modules/ScoreStorage';
 import { LyricProgress } from './modules/LyricProgress';
 import { InputConfigManager } from './modules/InputConfigManager';
 import { BookResonance } from './modules/BookResonance';
-import { getSongById, getNotesForDifficulty, songs } from './data/songs';
+import { ChapterUnlockManager } from './modules/ChapterUnlockManager';
+import { getSongById, getNotesForDifficulty, songs, SongWithUnlock } from './data/songs';
 import { ChartData, CharHitRecord, Difficulty, JudgeEvent, JudgeResult, LANE_COUNT, NoteData, NoteType, InputConfig, ResonanceState, PracticeConfig, DEFAULT_PRACTICE_CONFIG, BarInfo, PreloadedChart } from './types';
 
 interface NoteSprite {
@@ -1486,6 +1487,8 @@ export class Game {
 
     let isNewRecord = false;
     let previousBest = null;
+    let newlyUnlockedSongs: SongWithUnlock[] = [];
+
     if (this.currentChart) {
       previousBest = ScoreStorage.getBestScore(
         this.currentChart.song.id,
@@ -1504,6 +1507,12 @@ export class Game {
           score,
           accuracy
         );
+
+        const unlockResult = ChapterUnlockManager.evaluateAfterScore(
+          this.currentChart.song.id,
+          this.currentChart.difficulty
+        );
+        newlyUnlockedSongs = unlockResult.unlockedSongs;
       }
       
       ScoreStorage.addHistoryEntry(
@@ -1528,7 +1537,8 @@ export class Game {
       previousBest,
       accuracy,
       isPractice,
-      this.practiceConfig.speedMultiplier
+      this.practiceConfig.speedMultiplier,
+      newlyUnlockedSongs
     );
   }
 

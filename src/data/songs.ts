@@ -1,4 +1,4 @@
-import { ChartData, DIFFICULTY_CONFIGS, NoteData, NoteType } from '../types';
+import { ChartData, DIFFICULTY_CONFIGS, NoteData, NoteType, UnlockCondition } from '../types';
 
 function getNoteTypeForIndex(i: number, density: 'low' | 'normal' | 'high'): NoteType {
   if (density === 'low') {
@@ -65,7 +65,12 @@ const lovePoemEasyLyrics = '愿我如星君如月';
 const lovePoemNormalLyrics = '愿我如星君如月，夜夜流光相皎洁';
 const lovePoemHardLyrics = '愿我如星君如月，夜夜流光相皎洁。在这浮岛书屋里，为你写下这首诗❤';
 
-export const songs: ChartData[] = [
+export interface SongWithUnlock extends ChartData {
+  unlockCondition: UnlockCondition | null;
+  prerequisiteSongId: string | null;
+}
+
+export const songs: SongWithUnlock[] = [
   {
     id: 'love-poem',
     title: '告白诗篇',
@@ -87,7 +92,9 @@ export const songs: ChartData[] = [
       easy: { ...DIFFICULTY_CONFIGS.easy, starLevel: 2 },
       normal: { ...DIFFICULTY_CONFIGS.normal, starLevel: 4 },
       hard: { ...DIFFICULTY_CONFIGS.hard, starLevel: 6 }
-    }
+    },
+    unlockCondition: null,
+    prerequisiteSongId: null
   },
   {
     id: 'spring-breeze',
@@ -110,7 +117,15 @@ export const songs: ChartData[] = [
       easy: { ...DIFFICULTY_CONFIGS.easy, starLevel: 2, noteSpeed: 280 },
       normal: { ...DIFFICULTY_CONFIGS.normal, starLevel: 3, noteSpeed: 360 },
       hard: { ...DIFFICULTY_CONFIGS.hard, starLevel: 5, noteSpeed: 500 }
-    }
+    },
+    unlockCondition: {
+      type: 'both',
+      minRating: 'C',
+      minAccuracy: 70,
+      difficulty: 'normal',
+      description: '完成「告白诗篇」普通难度，评级≥C 且 准确率≥70%'
+    },
+    prerequisiteSongId: 'love-poem'
   },
   {
     id: 'moonlight-sonata',
@@ -133,11 +148,19 @@ export const songs: ChartData[] = [
       easy: { ...DIFFICULTY_CONFIGS.easy, starLevel: 3, noteSpeed: 340 },
       normal: { ...DIFFICULTY_CONFIGS.normal, starLevel: 5, noteSpeed: 440 },
       hard: { ...DIFFICULTY_CONFIGS.hard, starLevel: 7, noteSpeed: 580 }
-    }
+    },
+    unlockCondition: {
+      type: 'both',
+      minRating: 'B',
+      minAccuracy: 80,
+      difficulty: 'normal',
+      description: '完成「春风十里」普通难度，评级≥B 且 准确率≥80%'
+    },
+    prerequisiteSongId: 'spring-breeze'
   }
 ];
 
-export const getSongById = (id: string): ChartData | undefined => {
+export const getSongById = (id: string): SongWithUnlock | undefined => {
   return songs.find(song => song.id === id);
 };
 
@@ -147,4 +170,9 @@ export const getNotesForDifficulty = (song: ChartData, difficulty: 'easy' | 'nor
     return [...notes].sort((a, b) => a.time - b.time);
   }
   return [...song.difficulties.normal].sort((a, b) => a.time - b.time);
+};
+
+export const generateUnlockDescription = (condition: UnlockCondition | null): string => {
+  if (!condition) return '初始章节，自由游玩';
+  return condition.description;
 };

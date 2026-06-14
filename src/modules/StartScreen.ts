@@ -1,8 +1,9 @@
 import * as PIXI from 'pixi.js';
-import { ChartData, Difficulty, LANE_COUNT, PracticeConfig, DEFAULT_PRACTICE_CONFIG } from '../types';
-import { songs } from '../data/songs';
+import { Difficulty, LANE_COUNT, PracticeConfig, DEFAULT_PRACTICE_CONFIG } from '../types';
+import { songs, SongWithUnlock } from '../data/songs';
 import { ScoreStorage } from './ScoreStorage';
 import { InputConfigManager } from './InputConfigManager';
+import { ChapterUnlockManager } from './ChapterUnlockManager';
 
 const DIFFICULTY_LABELS: Record<Difficulty, string> = {
   easy: '简单',
@@ -16,7 +17,7 @@ export class StartScreen {
   private onStartCallback?: (songId: string, difficulty: Difficulty, practiceConfig: PracticeConfig) => void;
   private onPreloadCallback?: (songId: string, difficulty: Difficulty) => void;
 
-  private songList: ChartData[] = songs;
+  private songList: SongWithUnlock[] = songs;
   private selectedSongIndex: number = 0;
   private selectedDifficulty: Difficulty = 'normal';
   private preloadDebounceTimer?: number;
@@ -192,19 +193,21 @@ export class StartScreen {
     const song = this.songList[this.selectedSongIndex];
     const difficultyConfig = song.difficultyConfigs[this.selectedDifficulty];
     const bestScore = ScoreStorage.getBestScore(song.id, this.selectedDifficulty);
+    const unlockInfo = ChapterUnlockManager.getUnlockInfo(song.id);
 
     const bgPanel = new PIXI.Graphics();
+    const panelHeight = unlockInfo.isUnlocked ? 230 : 320;
     bgPanel.beginFill(0x1a1a3a, 0.9);
-    bgPanel.drawRoundedRect(-240, 0, 480, 230, 16);
+    bgPanel.drawRoundedRect(-240, 0, 480, panelHeight, 16);
     bgPanel.endFill();
-    bgPanel.lineStyle(2, 0x6b9dff, 0.6);
-    bgPanel.drawRoundedRect(-240, 0, 480, 230, 16);
+    bgPanel.lineStyle(2, unlockInfo.isUnlocked ? 0x6b9dff : 0x888888, 0.6);
+    bgPanel.drawRoundedRect(-240, 0, 480, panelHeight, 16);
     this.songInfoContainer.addChild(bgPanel);
 
     const titleStyle = new PIXI.TextStyle({
       fontFamily: 'serif',
       fontSize: 30,
-      fill: 0xffd700,
+      fill: unlockInfo.isUnlocked ? 0xffd700 : 0x888888,
       fontWeight: 'bold',
       stroke: 0x8b4513,
       strokeThickness: 2,
@@ -214,7 +217,10 @@ export class StartScreen {
       align: 'center'
     });
 
-    const title = new PIXI.Text(song.title, titleStyle);
+    const title = new PIXI.Text(
+      unlockInfo.isUnlocked ? song.title : `🔒 ${song.title}`,
+      titleStyle
+    );
     title.anchor.set(0.5);
     title.y = 25;
     this.songInfoContainer.addChild(title);
@@ -277,6 +283,7 @@ export class StartScreen {
     playCountText.y = 138;
     this.songInfoContainer.addChild(playCountText);
 
+    let bestScoreY = 168;
     if (bestScore) {
       const bestLabelStyle = new PIXI.TextStyle({
         fontFamily: 'sans-serif',
@@ -289,7 +296,7 @@ export class StartScreen {
       const bestLabel = new PIXI.Text('★ 最佳成绩', bestLabelStyle);
       bestLabel.anchor.set(0, 0.5);
       bestLabel.x = -210;
-      bestLabel.y = 168;
+      bestLabel.y = bestScoreY;
       this.songInfoContainer.addChild(bestLabel);
 
       const bestScoreStyle = new PIXI.TextStyle({
@@ -306,7 +313,7 @@ export class StartScreen {
       );
       bestScoreText.anchor.set(0, 0.5);
       bestScoreText.x = -210;
-      bestScoreText.y = 190;
+      bestScoreText.y = bestScoreY + 22;
       this.songInfoContainer.addChild(bestScoreText);
 
       const bestDetailStyle = new PIXI.TextStyle({
@@ -322,7 +329,7 @@ export class StartScreen {
       );
       bestDetailText.anchor.set(0, 0.5);
       bestDetailText.x = -210;
-      bestDetailText.y = 212;
+      bestDetailText.y = bestScoreY + 44;
       this.songInfoContainer.addChild(bestDetailText);
     } else {
       const noScoreStyle = new PIXI.TextStyle({
@@ -333,10 +340,98 @@ export class StartScreen {
         align: 'center'
       });
 
-      const noScoreText = new PIXI.Text('暂无记录 - 来挑战吧！', noScoreStyle);
+      const noScoreText = new PIXI.Text(
+        unlockInfo.isUnlocked ? '暂无记录 - 来挑战吧！' : '章节尚未解锁',
+        noScoreStyle
+      );
       noScoreText.anchor.set(0.5);
-      noScoreText.y = 190;
+      noScoreText.y = bestScoreY + 12;
       this.songInfoContainer.addChild(noScoreText);
+    }
+
+    if (!unlockInfo.isUnlocked && song.unlockCondition) {
+      const unlockY = bestScore ? bestScoreY + 75 : bestScoreY + 40;
+
+      const unlockHeaderStyle = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 14,
+        fill: 0xff9d5b,
+        fontWeight: 'bold',
+        align: 'center'
+      });
+      const unlockHeader = new PIXI.Text('🔒 解锁条件', unlockHeaderStyle);
+      unlockHeader.anchor.set(0.5);
+      unlockHeader.y = unlockY;
+      this.songInfoContainer.addChild(unlockHeader);
+
+      const unlockDescStyle = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 12,
+        fill: 0xcccccc,
+        align: 'center',
+        wordWrap: true,
+        wordWrapWidth: 440,
+        lineHeight: 18
+      });
+      const unlockDesc = new PIXI.Text(song.unlockCondition.description, unlockDescStyle);
+      unlockDesc.anchor.set(0.5);
+      unlockDesc.y = unlockY + 22;
+      this.songInfoContainer.addChild(unlockDesc);
+
+      const progressText = ChapterUnlockManager.getProgressText(song.unlockCondition, unlockInfo.progress);
+      const progressStyle = new PIXI.TextStyle({
+        fontFamily: 'monospace',
+        fontSize: 12,
+        fill: unlockInfo.progress?.overallProgress && unlockInfo.progress.overallProgress >= 1
+          ? 0x6bff9d
+          : 0x888888,
+        align: 'center'
+      });
+      const progressLabel = new PIXI.Text(progressText, progressStyle);
+      progressLabel.anchor.set(0.5);
+      progressLabel.y = unlockY + 56;
+      this.songInfoContainer.addChild(progressLabel);
+
+      if (unlockInfo.progress) {
+        const barBg = new PIXI.Graphics();
+        barBg.beginFill(0x333355, 0.8);
+        barBg.drawRoundedRect(-200, unlockY + 70, 400, 10, 5);
+        barBg.endFill();
+        this.songInfoContainer.addChild(barBg);
+
+        const progress = unlockInfo.progress.overallProgress;
+        if (progress > 0) {
+          const barColor = progress >= 1 ? 0x6bff9d : progress >= 0.5 ? 0xffd700 : 0xff9d5b;
+          const bar = new PIXI.Graphics();
+          bar.beginFill(barColor, 1);
+          bar.drawRoundedRect(-200, unlockY + 70, 400 * progress, 10, 5);
+          bar.endFill();
+          this.songInfoContainer.addChild(bar);
+        }
+
+        const percentStyle = new PIXI.TextStyle({
+          fontFamily: 'monospace',
+          fontSize: 11,
+          fill: 0x888888,
+          align: 'center'
+        });
+        const percentLabel = new PIXI.Text(`完成度: ${(progress * 100).toFixed(0)}%`, percentStyle);
+        percentLabel.anchor.set(0.5);
+        percentLabel.y = unlockY + 88;
+        this.songInfoContainer.addChild(percentLabel);
+      }
+    } else if (unlockInfo.isUnlocked) {
+      const unlockStatusStyle = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 12,
+        fill: 0x6bff9d,
+        fontWeight: 'bold',
+        align: 'center'
+      });
+      const unlockStatus = new PIXI.Text('✓ 章节已解锁', unlockStatusStyle);
+      unlockStatus.anchor.set(0.5);
+      unlockStatus.y = bestScore ? bestScoreY + 72 : bestScoreY + 40;
+      this.songInfoContainer.addChild(unlockStatus);
     }
 
     const poemLabelStyle = new PIXI.TextStyle({
@@ -349,7 +444,7 @@ export class StartScreen {
     const poemPreview = song.poemLines.slice(0, 1).join('  ');
     const poemText = new PIXI.Text(`「${poemPreview}...」`, poemLabelStyle);
     poemText.anchor.set(0.5);
-    poemText.y = 225;
+    poemText.y = panelHeight - 8;
     this.songInfoContainer.addChild(poemText);
   }
 
@@ -440,6 +535,7 @@ export class StartScreen {
     this.selectedDifficulty = difficulty;
     this.updateDifficultyButtons();
     this.updateSongInfo();
+    this.updateStartButtonState();
     this.triggerPreload();
     if (this.leaderboardVisible) {
       this.updateLeaderboardContent();
@@ -459,6 +555,7 @@ export class StartScreen {
   private prevSong(): void {
     this.selectedSongIndex = (this.selectedSongIndex - 1 + this.songList.length) % this.songList.length;
     this.updateSongInfo();
+    this.updateStartButtonState();
     this.triggerPreload();
     if (this.leaderboardVisible) {
       this.updateLeaderboardContent();
@@ -468,11 +565,15 @@ export class StartScreen {
   private nextSong(): void {
     this.selectedSongIndex = (this.selectedSongIndex + 1) % this.songList.length;
     this.updateSongInfo();
+    this.updateStartButtonState();
     this.triggerPreload();
     if (this.leaderboardVisible) {
       this.updateLeaderboardContent();
     }
   }
+
+  private startButtonBg?: PIXI.Graphics;
+  private startButtonText?: PIXI.Text;
 
   private createStartButton(): void {
     const buttonContainer = new PIXI.Container();
@@ -490,6 +591,7 @@ export class StartScreen {
     buttonBg.on('pointerdown', () => this.startGame());
 
     buttonContainer.addChild(buttonBg);
+    this.startButtonBg = buttonBg;
 
     const buttonStyle = new PIXI.TextStyle({
       fontFamily: 'sans-serif',
@@ -502,10 +604,37 @@ export class StartScreen {
     const buttonText = new PIXI.Text('开始游戏', buttonStyle);
     buttonText.anchor.set(0.5);
     buttonContainer.addChild(buttonText);
+    this.startButtonText = buttonText;
 
     this.container.addChild(buttonContainer);
 
+    this.updateStartButtonState();
     this.animateButton(buttonBg);
+  }
+
+  private updateStartButtonState(): void {
+    if (!this.startButtonBg || !this.startButtonText) return;
+
+    const song = this.songList[this.selectedSongIndex];
+    const unlockInfo = ChapterUnlockManager.getUnlockInfo(song.id);
+    const isUnlocked = unlockInfo.isUnlocked;
+
+    this.startButtonBg.clear();
+    if (isUnlocked) {
+      this.startButtonBg.beginFill(0x6b9dff);
+      this.startButtonText.text = '开始游戏';
+      this.startButtonText.style.fill = 0xffffff;
+      this.startButtonBg.interactive = true;
+      this.startButtonBg.cursor = 'pointer';
+    } else {
+      this.startButtonBg.beginFill(0x555566, 0.8);
+      this.startButtonText.text = '🔒 章节未解锁';
+      this.startButtonText.style.fill = 0xaaaaaa;
+      this.startButtonBg.interactive = false;
+      this.startButtonBg.cursor = 'default';
+    }
+    this.startButtonBg.drawRoundedRect(-120, -32, 240, 64, 16);
+    this.startButtonBg.endFill();
   }
 
   private animateButton(button: PIXI.Graphics): void {
@@ -869,7 +998,9 @@ export class StartScreen {
 
   public show(): void {
     this.container.visible = true;
+    ChapterUnlockManager.evaluateAndUnlockAll();
     this.updateSongInfo();
+    this.updateStartButtonState();
     this.triggerPreload();
     if (this.leaderboardVisible) {
       this.updateLeaderboardContent();

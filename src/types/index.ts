@@ -326,3 +326,38 @@ export interface PreloadedChart {
   poemLines: string[];
   loadedAt: number;
 }
+
+export type UnlockConditionType = 'rating' | 'accuracy' | 'both';
+
+export interface UnlockCondition {
+  type: UnlockConditionType;
+  minRating?: string;
+  minAccuracy?: number;
+  difficulty?: Difficulty;
+  description: string;
+}
+
+export interface SongUnlockInfo {
+  songId: string;
+  unlockCondition: UnlockCondition | null;
+  isUnlocked: boolean;
+  progress?: {
+    currentRating?: string;
+    currentAccuracy?: number;
+    ratingMet: boolean;
+    accuracyMet: boolean;
+    overallProgress: number;
+  };
+}
+
+export type RATING_ORDER = ['D', 'C', 'B', 'A', 'S'];
+
+export const RATING_RANK: Record<string, number> = {
+  'D': 0,
+  'C': 1,
+  'B': 2,
+  'A': 3,
+  'S': 4
+};
+
+export const CHAPTER_UNLOCK_KEY = 'floating-island-bookstore-chapter-unlock';
