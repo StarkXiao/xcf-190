@@ -9,6 +9,7 @@ import { LyricProgress } from './modules/LyricProgress';
 import { InputConfigManager } from './modules/InputConfigManager';
 import { BookResonance } from './modules/BookResonance';
 import { ChapterUnlockManager } from './modules/ChapterUnlockManager';
+import { SongLibrary } from './modules/SongLibrary';
 import { getSongById, getNotesForDifficulty, songs, SongWithUnlock } from './data/songs';
 import { ChartData, CharHitRecord, Difficulty, JudgeEvent, JudgeResult, LANE_COUNT, NoteData, NoteType, InputConfig, ResonanceState, PracticeConfig, DEFAULT_PRACTICE_CONFIG, BarInfo, PreloadedChart } from './types';
 
@@ -1332,6 +1333,8 @@ export class Game {
     this.gameState = 'playing';
     this.startScreen.hide();
     this.gameContainer.visible = true;
+
+    SongLibrary.getInstance().markAsPlayed(songId);
     
     this.resetGame();
     this.createSongInfoOverlay();

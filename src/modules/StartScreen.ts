@@ -1,9 +1,21 @@
 import * as PIXI from 'pixi.js';
-import { Difficulty, LANE_COUNT, PracticeConfig, DEFAULT_PRACTICE_CONFIG } from '../types';
+import {
+  Difficulty,
+  LANE_COUNT,
+  PracticeConfig,
+  DEFAULT_PRACTICE_CONFIG,
+  SongLibraryEntry,
+  SongLibraryFilterType,
+  SongLibrarySortType,
+  CoverArt,
+  DEFAULT_COVER_ART_SIZE
+} from '../types';
 import { songs, SongWithUnlock } from '../data/songs';
 import { ScoreStorage } from './ScoreStorage';
 import { InputConfigManager } from './InputConfigManager';
 import { ChapterUnlockManager } from './ChapterUnlockManager';
+import { SongLibrary } from './SongLibrary';
+import { CoverArtManager } from './CoverArtManager';
 
 const DIFFICULTY_LABELS: Record<Difficulty, string> = {
   easy: '简单',
@@ -50,6 +62,17 @@ export class StartScreen {
 
   private inputConfigManager: InputConfigManager;
 
+  private songLibrary: SongLibrary;
+  private coverArtManager: CoverArtManager;
+  private libraryEntries: SongLibraryEntry[] = [];
+  private currentFilterType: SongLibraryFilterType = 'all';
+  private currentSortType: SongLibrarySortType = 'default';
+  private filterPanel: PIXI.Container;
+  private filterPanelVisible: boolean = false;
+  private coverArtContainer: PIXI.Container;
+  private loadedCoverTextures: Map<string, PIXI.Texture> = new Map();
+  private removeLibraryListener?: () => void;
+
   constructor(app: PIXI.Application) {
     this.app = app;
     this.container = new PIXI.Container();
@@ -59,15 +82,22 @@ export class StartScreen {
     this.settingsPanel = new PIXI.Container();
     this.settingsContent = new PIXI.Container();
     this.practicePanel = new PIXI.Container();
+    this.filterPanel = new PIXI.Container();
+    this.coverArtContainer = new PIXI.Container();
     this.inputConfigManager = InputConfigManager.getInstance();
+    this.songLibrary = SongLibrary.getInstance();
+    this.coverArtManager = CoverArtManager.getInstance();
     this.app.stage.addChild(this.container);
+    this.initializeLibrary();
     this.createScreen();
+    this.setupLibraryListener();
   }
 
   private createScreen(): void {
     this.createBackground();
     this.createTitle();
     this.createSongNavigation();
+    this.createCoverArtDisplay();
     this.createSongInfo();
     this.createDifficultySelector();
     this.createStartButton();
@@ -78,8 +108,369 @@ export class StartScreen {
     this.createSettingsPanel();
     this.createPracticeToggle();
     this.createPracticePanel();
+    this.createFilterToggle();
+    this.createFilterPanel();
     this.setupConfigChangeListener();
     this.setupKeyCaptureListener();
+  }
+
+  private initializeLibrary(): void {
+    this.refreshLibraryEntries();
+  }
+
+  private refreshLibraryEntries(): void {
+    this.libraryEntries = this.songLibrary.filterAndSort(
+      { type: this.currentFilterType },
+      { type: this.currentSortType, ascending: true }
+    );
+  }
+
+  private setupLibraryListener(): void {
+    this.removeLibraryListener = this.songLibrary.addChangeListener(() => {
+      this.refreshLibraryEntries();
+      this.updateSongInfo();
+      this.updateStartButtonState();
+    });
+  }
+
+  private createCoverArtDisplay(): void {
+    this.coverArtContainer.x = this.app.screen.width / 2;
+    this.coverArtContainer.y = 140;
+    this.container.addChild(this.coverArtContainer);
+    this.updateCoverArtDisplay();
+  }
+
+  private updateCoverArtDisplay(): void {
+    this.coverArtContainer.removeChildren();
+
+    const song = this.songList[this.selectedSongIndex];
+    if (!song) return;
+
+    const libraryEntry = this.songLibrary.getLibraryEntry(song.id);
+    const coverArt = libraryEntry?.chart.metadata.coverArt;
+
+    const coverWidth = Math.min(400, this.app.screen.width - 80);
+    const coverHeight = (coverWidth / DEFAULT_COVER_ART_SIZE.width) * DEFAULT_COVER_ART_SIZE.height;
+
+    if (coverArt) {
+      this.renderCoverArt(coverArt, coverWidth, coverHeight);
+    } else {
+      this.renderPlaceholderCover(coverWidth, coverHeight, song);
+    }
+  }
+
+  private renderCoverArt(coverArt: CoverArt, width: number, height: number): void {
+    const colors = this.coverArtManager.getCoverColors(coverArt);
+
+    const bg = new PIXI.Graphics();
+    bg.beginFill(parseInt(colors.secondary.replace('#', ''), 16));
+    bg.drawRoundedRect(-width / 2, 0, width, height, 16);
+    bg.endFill();
+    this.coverArtContainer.addChild(bg);
+
+    const accent = parseInt(colors.accent.replace('#', ''), 16);
+    const primary = parseInt(colors.primary.replace('#', ''), 16);
+
+    const overlay = new PIXI.Graphics();
+    for (let i = 0; i < 20; i++) {
+      const x = (Math.random() - 0.5) * width;
+      const y = Math.random() * height;
+      const r = 2 + Math.random() * 6;
+      overlay.beginFill(0xffffff, 0.05 + Math.random() * 0.1);
+      overlay.drawCircle(x, y, r);
+      overlay.endFill();
+    }
+
+    for (let i = 0; i < 5; i++) {
+      const y1 = (height / 6) * (i + 1);
+      overlay.lineStyle(1, 0xffffff, 0.05);
+      overlay.moveTo(-width / 2, y1);
+      overlay.quadraticCurveTo(0, y1 - 20, width / 2, y1);
+    }
+    this.coverArtContainer.addChild(overlay);
+
+    const orbs = [
+      { x: -width * 0.3, y: height * 0.25, r: width * 0.12, color: primary, opacity: 0.2 },
+      { x: width * 0.3, y: height * 0.7, r: width * 0.15, color: accent, opacity: 0.15 },
+      { x: width * 0.25, y: height * 0.15, r: width * 0.08, color: primary, opacity: 0.25 }
+    ];
+    orbs.forEach(o => {
+      const orb = new PIXI.Graphics();
+      orb.beginFill(o.color, o.opacity);
+      orb.drawCircle(o.x, o.y, o.r);
+      orb.endFill();
+      this.coverArtContainer.addChild(orb);
+    });
+
+    const border = new PIXI.Graphics();
+    border.lineStyle(3, accent, 0.5);
+    border.drawRoundedRect(-width / 2, 0, width, height, 16);
+    border.endFill();
+    this.coverArtContainer.addChild(border);
+  }
+
+  private renderPlaceholderCover(width: number, height: number, song: SongWithUnlock): void {
+    const bg = new PIXI.Graphics();
+    bg.beginFill(0x1a1a3a);
+    bg.drawRoundedRect(-width / 2, 0, width, height, 16);
+    bg.endFill();
+
+    const textStyle = new PIXI.TextStyle({
+      fontFamily: 'serif',
+      fontSize: 28,
+      fontWeight: 'bold',
+      fill: 0xffd700,
+      stroke: 0x8b4513,
+      strokeThickness: 2,
+      align: 'center'
+    });
+
+    const text = new PIXI.Text(song.title, textStyle);
+    text.anchor.set(0.5);
+    text.y = height / 2;
+    bg.addChild(text);
+
+    this.coverArtContainer.addChild(bg);
+  }
+
+  private createFilterToggle(): void {
+    const btnContainer = new PIXI.Graphics() as PIXI.Graphics & { labelText?: PIXI.Text };
+    btnContainer.x = this.app.screen.width - 70;
+    btnContainer.y = 170;
+
+    btnContainer.beginFill(0xf39c12, 0.85);
+    btnContainer.lineStyle(2, 0xffd700, 0.6);
+    btnContainer.drawRoundedRect(-40, -20, 80, 40, 10);
+    btnContainer.endFill();
+
+    const btnStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 13,
+      fontWeight: 'bold',
+      fill: 0xffffff,
+      align: 'center'
+    });
+
+    const text = new PIXI.Text('🔍 筛选', btnStyle);
+    text.anchor.set(0.5);
+    btnContainer.addChild(text);
+
+    btnContainer.interactive = true;
+    btnContainer.cursor = 'pointer';
+    btnContainer.on('pointerdown', () => this.toggleFilterPanel());
+
+    this.container.addChild(btnContainer);
+  }
+
+  private createFilterPanel(): void {
+    this.filterPanel.x = 0;
+    this.filterPanel.y = 0;
+    this.filterPanel.visible = false;
+
+    const mask = new PIXI.Graphics();
+    mask.beginFill(0x000000, 0.85);
+    mask.drawRect(0, 0, this.app.screen.width, this.app.screen.height);
+    mask.endFill();
+    mask.interactive = true;
+    this.filterPanel.addChild(mask);
+
+    const panelWidth = Math.min(520, this.app.screen.width - 40);
+    const panelHeight = 520;
+    const panelX = (this.app.screen.width - panelWidth) / 2;
+    const panelY = (this.app.screen.height - panelHeight) / 2;
+
+    const panelBg = new PIXI.Graphics();
+    panelBg.beginFill(0x151530, 0.98);
+    panelBg.lineStyle(3, 0xf39c12, 0.8);
+    panelBg.drawRoundedRect(panelX, panelY, panelWidth, panelHeight, 16);
+    panelBg.endFill();
+    this.filterPanel.addChild(panelBg);
+
+    const titleStyle = new PIXI.TextStyle({
+      fontFamily: 'serif',
+      fontSize: 24,
+      fontWeight: 'bold',
+      fill: 0xffd700,
+      align: 'center'
+    });
+
+    const title = new PIXI.Text('🔍 曲库筛选与排序', titleStyle);
+    title.anchor.set(0.5);
+    title.x = this.app.screen.width / 2;
+    title.y = panelY + 30;
+    this.filterPanel.addChild(title);
+
+    const closeBtn = new PIXI.Graphics();
+    closeBtn.x = panelX + panelWidth - 40;
+    closeBtn.y = panelY + 30;
+    closeBtn.beginFill(0xff6b6b, 0.9);
+    closeBtn.drawRoundedRect(-18, -18, 36, 36, 8);
+    closeBtn.endFill();
+    closeBtn.interactive = true;
+    closeBtn.cursor = 'pointer';
+    closeBtn.on('pointerdown', () => this.toggleFilterPanel());
+
+    const closeStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 18,
+      fontWeight: 'bold',
+      fill: 0xffffff,
+      align: 'center'
+    });
+    const closeText = new PIXI.Text('✕', closeStyle);
+    closeText.anchor.set(0.5);
+    closeBtn.addChild(closeText);
+    this.filterPanel.addChild(closeBtn);
+
+    const contentX = panelX + 30;
+    const contentWidth = panelWidth - 60;
+    let contentY = panelY + 70;
+
+    contentY = this.createFilterSection(contentX, contentY, contentWidth, '筛选方式', [
+      { key: 'all' as const, label: '全部曲目' },
+      { key: 'unlocked' as const, label: '已解锁' },
+      { key: 'locked' as const, label: '未解锁' },
+      { key: 'favorites' as const, label: '收藏' },
+      { key: 'unplayed' as const, label: '未游玩' }
+    ], this.currentFilterType, (type) => {
+      this.currentFilterType = type;
+      this.refreshLibraryEntries();
+      this.selectedSongIndex = Math.min(this.selectedSongIndex, Math.max(0, this.libraryEntries.length - 1));
+      this.updateSongInfo();
+      this.updateCoverArtDisplay();
+      this.updateStartButtonState();
+      this.updateFilterPanelContent();
+    });
+
+    contentY = this.createFilterSection(contentX, contentY + 20, contentWidth, '排序方式', [
+      { key: 'default' as const, label: '默认顺序' },
+      { key: 'title' as const, label: '曲名' },
+      { key: 'artist' as const, label: '艺术家' },
+      { key: 'bpm' as const, label: 'BPM' },
+      { key: 'difficulty' as const, label: '难度' },
+      { key: 'score' as const, label: '最高分' },
+      { key: 'recent' as const, label: '最近游玩' }
+    ], this.currentSortType, (type) => {
+      this.currentSortType = type;
+      this.refreshLibraryEntries();
+      this.selectedSongIndex = 0;
+      this.updateSongInfo();
+      this.updateCoverArtDisplay();
+      this.updateStartButtonState();
+      this.updateFilterPanelContent();
+    });
+
+    this.updateFilterStats(panelX, panelWidth, panelY, panelHeight);
+
+    this.container.addChild(this.filterPanel);
+  }
+
+  private createFilterSection<T extends string>(
+    x: number,
+    y: number,
+    width: number,
+    label: string,
+    options: Array<{ key: T; label: string }>,
+    currentValue: T,
+    onChange: (value: T) => void
+  ): number {
+    const sectionTitleStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 15,
+      fontWeight: 'bold',
+      fill: 0xffd700,
+      align: 'left'
+    });
+
+    const sectionTitle = new PIXI.Text(label, sectionTitleStyle);
+    sectionTitle.anchor.set(0, 0);
+    sectionTitle.x = x;
+    sectionTitle.y = y;
+    this.filterPanel.addChild(sectionTitle);
+
+    const btnHeight = 36;
+    const btnPadding = 8;
+    const columns = options.length <= 4 ? options.length : Math.ceil(options.length / 2);
+    const btnWidth = (width - (columns - 1) * btnPadding) / columns;
+    const rows = Math.ceil(options.length / columns);
+
+    options.forEach((opt, index) => {
+      const col = index % columns;
+      const row = Math.floor(index / columns);
+      const btnX = x + col * (btnWidth + btnPadding);
+      const btnY = y + 30 + row * (btnHeight + btnPadding);
+
+      const btn = new PIXI.Graphics();
+      const isSelected = currentValue === opt.key;
+
+      if (isSelected) {
+        btn.lineStyle(2, 0xffd700, 1);
+        btn.beginFill(0xf39c12, 1);
+      } else {
+        btn.lineStyle(1, 0x666688, 0.6);
+        btn.beginFill(0x2a2a4a, 0.8);
+      }
+      btn.drawRoundedRect(btnX, btnY, btnWidth, btnHeight, 8);
+      btn.endFill();
+
+      const btnStyle = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 13,
+        fontWeight: 'bold',
+        fill: isSelected ? 0x000000 : 0xcccccc,
+        align: 'center'
+      });
+
+      const btnText = new PIXI.Text(opt.label, btnStyle);
+      btnText.anchor.set(0.5);
+      btnText.x = btnX + btnWidth / 2;
+      btnText.y = btnY + btnHeight / 2;
+      this.filterPanel.addChild(btnText);
+
+      btn.interactive = true;
+      btn.cursor = 'pointer';
+      btn.on('pointerdown', () => onChange(opt.key));
+
+      this.filterPanel.addChild(btn);
+    });
+
+    return y + 30 + rows * (btnHeight + btnPadding);
+  }
+
+  private updateFilterPanelContent(): void {
+    const children = this.filterPanel.children.slice();
+    children.forEach(c => this.filterPanel.removeChild(c));
+    this.createFilterPanel();
+  }
+
+  private updateFilterStats(panelX: number, panelWidth: number, panelY: number, panelHeight: number): void {
+    const total = this.songLibrary.getSongCount();
+    const filtered = this.libraryEntries.length;
+    const active = this.songLibrary.getActiveSongCount();
+
+    const statsStyle = new PIXI.TextStyle({
+      fontFamily: 'monospace',
+      fontSize: 12,
+      fill: 0x888888,
+      align: 'center'
+    });
+
+    const stats = new PIXI.Text(
+      `共 ${total} 首曲目 | 激活: ${active} | 当前筛选: ${filtered} 首`,
+      statsStyle
+    );
+    stats.anchor.set(0.5);
+    stats.x = panelX + panelWidth / 2;
+    stats.y = panelY + panelHeight - 30;
+    this.filterPanel.addChild(stats);
+  }
+
+  private toggleFilterPanel(): void {
+    this.filterPanelVisible = !this.filterPanelVisible;
+    this.filterPanel.visible = this.filterPanelVisible;
+    if (this.filterPanelVisible) {
+      this.refreshLibraryEntries();
+    }
   }
 
   private createBackground(): void {
@@ -535,6 +926,7 @@ export class StartScreen {
     this.selectedDifficulty = difficulty;
     this.updateDifficultyButtons();
     this.updateSongInfo();
+    this.updateCoverArtDisplay();
     this.updateStartButtonState();
     this.triggerPreload();
     if (this.leaderboardVisible) {
@@ -552,9 +944,27 @@ export class StartScreen {
     });
   }
 
+  private getCurrentSongList(): SongWithUnlock[] {
+    if (this.libraryEntries.length > 0) {
+      const ids = new Set(this.libraryEntries.map(e => e.chart.metadata.id));
+      return this.songList.filter(s => ids.has(s.id));
+    }
+    return this.songList;
+  }
+
   private prevSong(): void {
-    this.selectedSongIndex = (this.selectedSongIndex - 1 + this.songList.length) % this.songList.length;
+    const list = this.getCurrentSongList();
+    const total = list.length;
+    if (total === 0) return;
+    const currentSongId = this.songList[this.selectedSongIndex]?.id;
+    let currentIdx = list.findIndex(s => s.id === currentSongId);
+    if (currentIdx < 0) currentIdx = 0;
+    const newIdx = (currentIdx - 1 + total) % total;
+    const newSongId = list[newIdx].id;
+    this.selectedSongIndex = this.songList.findIndex(s => s.id === newSongId);
+    if (this.selectedSongIndex < 0) this.selectedSongIndex = 0;
     this.updateSongInfo();
+    this.updateCoverArtDisplay();
     this.updateStartButtonState();
     this.triggerPreload();
     if (this.leaderboardVisible) {
@@ -563,8 +973,18 @@ export class StartScreen {
   }
 
   private nextSong(): void {
-    this.selectedSongIndex = (this.selectedSongIndex + 1) % this.songList.length;
+    const list = this.getCurrentSongList();
+    const total = list.length;
+    if (total === 0) return;
+    const currentSongId = this.songList[this.selectedSongIndex]?.id;
+    let currentIdx = list.findIndex(s => s.id === currentSongId);
+    if (currentIdx < 0) currentIdx = 0;
+    const newIdx = (currentIdx + 1) % total;
+    const newSongId = list[newIdx].id;
+    this.selectedSongIndex = this.songList.findIndex(s => s.id === newSongId);
+    if (this.selectedSongIndex < 0) this.selectedSongIndex = 0;
     this.updateSongInfo();
+    this.updateCoverArtDisplay();
     this.updateStartButtonState();
     this.triggerPreload();
     if (this.leaderboardVisible) {
@@ -999,7 +1419,9 @@ export class StartScreen {
   public show(): void {
     this.container.visible = true;
     ChapterUnlockManager.evaluateAndUnlockAll();
+    this.refreshLibraryEntries();
     this.updateSongInfo();
+    this.updateCoverArtDisplay();
     this.updateStartButtonState();
     this.triggerPreload();
     if (this.leaderboardVisible) {
@@ -1011,6 +1433,21 @@ export class StartScreen {
     this.container.visible = false;
     this.leaderboardVisible = false;
     this.leaderboardPanel.visible = false;
+    this.filterPanelVisible = false;
+    this.filterPanel.visible = false;
+  }
+
+  public destroy(): void {
+    if (this.removeLibraryListener) {
+      this.removeLibraryListener();
+    }
+    this.loadedCoverTextures.forEach((tex) => {
+      if (!tex.destroyed) {
+        tex.destroy();
+      }
+    });
+    this.loadedCoverTextures.clear();
+    this.container.destroy();
   }
 
   private createSettingsToggle(): void {
@@ -2154,9 +2591,5 @@ export class StartScreen {
     });
     
     this.practicePanel.addChild(toggleBtn);
-  }
-
-  public destroy(): void {
-    this.container.destroy();
   }
 }

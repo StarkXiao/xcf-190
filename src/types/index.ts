@@ -361,3 +361,127 @@ export const RATING_RANK: Record<string, number> = {
 };
 
 export const CHAPTER_UNLOCK_KEY = 'floating-island-bookstore-chapter-unlock';
+
+export interface CoverArt {
+  id: string;
+  songId: string;
+  type: 'gradient' | 'image' | 'svg';
+  data: string;
+  width: number;
+  height: number;
+  primaryColor: string;
+  secondaryColor: string;
+  accentColor: string;
+  createdAt: number;
+}
+
+export interface SongMetadata {
+  id: string;
+  title: string;
+  artist: string;
+  album?: string;
+  composer?: string;
+  lyricist?: string;
+  arranger?: string;
+  vocal?: string;
+  illustrator?: string;
+  bpm: number;
+  duration: number;
+  genre: string;
+  tags: string[];
+  description: string;
+  poemLines: string[];
+  lyrics: string;
+  coverArt: CoverArt | null;
+  releaseDate?: string;
+  chapter?: string;
+}
+
+export interface ChartDifficultyConfig {
+  difficulty: Difficulty;
+  label: string;
+  noteSpeed: number;
+  judgeTiming: JudgeTiming;
+  starLevel: number;
+  noteCount: number;
+  maxCombo: number;
+  designer?: string;
+  description?: string;
+}
+
+export interface SongChartEntry {
+  metadata: SongMetadata;
+  difficulties: {
+    easy?: NoteData[];
+    normal: NoteData[];
+    hard?: NoteData[];
+  };
+  difficultyConfigs: {
+    easy: ChartDifficultyConfig;
+    normal: ChartDifficultyConfig;
+    hard: ChartDifficultyConfig;
+  };
+  unlockCondition: UnlockCondition | null;
+  prerequisiteSongId: string | null;
+  isActive: boolean;
+  sortOrder: number;
+}
+
+export type SongLibraryFilterType = 'all' | 'unlocked' | 'locked' | 'favorites' | 'unplayed';
+export type SongLibrarySortType = 'default' | 'title' | 'artist' | 'bpm' | 'difficulty' | 'score' | 'recent';
+
+export interface SongLibraryFilter {
+  type: SongLibraryFilterType;
+  searchQuery?: string;
+  minStarLevel?: number;
+  maxStarLevel?: number;
+  genres?: string[];
+  tags?: string[];
+}
+
+export interface SongLibrarySort {
+  type: SongLibrarySortType;
+  ascending: boolean;
+}
+
+export interface SongLibraryEntry {
+  chart: SongChartEntry;
+  bestScore?: BestScore;
+  isFavorite: boolean;
+  isNew: boolean;
+  lastPlayedAt?: number;
+  playCount: number;
+}
+
+export interface LibraryChangeEvent {
+  type: 'add' | 'remove' | 'update' | 'reorder';
+  songId?: string;
+  timestamp: number;
+}
+
+export type LibraryChangeListener = (event: LibraryChangeEvent) => void;
+
+export const DEFAULT_COVER_ART_SIZE = { width: 480, height: 270 };
+
+export const DEFAULT_GENRES = ['古风', '流行', '摇滚', '电子', '古典', '民谣', '爵士', '其他'];
+
+export const COVER_PRESET_THEMES: Array<{
+  name: string;
+  primary: string;
+  secondary: string;
+  accent: string;
+}> = [
+  { name: '暮色晚霞', primary: '#FF6B9D', secondary: '#1A1A3A', accent: '#FFD700' },
+  { name: '碧波清流', primary: '#6B9DFF', secondary: '#0A0A1A', accent: '#6BFF9D' },
+  { name: '秋日金黄', primary: '#FF9D5B', secondary: '#1A1008', accent: '#FFD700' },
+  { name: '翠竹幽篁', primary: '#6BFF9D', secondary: '#0A1A0A', accent: '#9B59B6' },
+  { name: '紫玉烟霞', primary: '#9B59B6', secondary: '#1A0A1A', accent: '#FF6B9D' },
+  { name: '深海幽蓝', primary: '#3498DB', secondary: '#0A0A1A', accent: '#E74C3C' },
+  { name: '墨韵书香', primary: '#C0C0C0', secondary: '#1A1A1A', accent: '#FFD700' },
+  { name: '桃夭灼灼', primary: '#E74C3C', secondary: '#1A0A0A', accent: '#FFD700' }
+];
+
+export interface LegacySongWithUnlock extends ChartData {
+  unlockCondition: UnlockCondition | null;
+  prerequisiteSongId: string | null;
+}
