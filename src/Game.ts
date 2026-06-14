@@ -221,8 +221,9 @@ export class Game {
         if (this.gameState === 'playing') {
           const tapEnabled = this.isGestureEnabled('tap', i);
           const holdEnabled = this.isGestureEnabled('hold');
+          const swipeEnabled = this.isGestureEnabled('swipe');
           
-          if (!tapEnabled && !holdEnabled) {
+          if (!tapEnabled && !holdEnabled && !swipeEnabled) {
             return;
           }
           
@@ -443,6 +444,9 @@ export class Game {
     }
     if (gesture === 'swipe' && direction) {
       return this.inputConfigManager.isSwipeEnabled(direction as any);
+    }
+    if (gesture === 'swipe' && !direction) {
+      return this.inputConfigManager.isAnySwipeEnabled();
     }
     if (gesture === 'hold') {
       return this.inputConfigManager.isHoldEnabled();

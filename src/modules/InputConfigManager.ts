@@ -176,6 +176,10 @@ export class InputConfigManager {
     return config?.enabled ?? false;
   }
 
+  public isAnySwipeEnabled(): boolean {
+    return this.config.gestures.some(g => g.gesture === 'swipe' && g.enabled);
+  }
+
   public setGestureEnabled(gesture: GestureType, lane: number, direction: SwipeDirection | undefined, enabled: boolean): ValidationResult {
     const errors: string[] = [];
     const warnings: string[] = [];
