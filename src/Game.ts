@@ -11,7 +11,7 @@ import { BookResonance } from './modules/BookResonance';
 import { ChapterUnlockManager } from './modules/ChapterUnlockManager';
 import { SongLibrary } from './modules/SongLibrary';
 import { getSongById, SongWithUnlock } from './data/songs';
-import { ChartData, CharHitRecord, Difficulty, JudgeEvent, JudgeResult, LANE_COUNT, NoteData, NoteType, InputConfig, ResonanceState, PracticeConfig, DEFAULT_PRACTICE_CONFIG, BarInfo, PreloadedChart } from './types';
+import { ChartData, CharHitRecord, Difficulty, JudgeEvent, JudgeResult, LANE_COUNT, NoteData, NoteType, InputConfig, ResonanceState, PracticeConfig, DEFAULT_PRACTICE_CONFIG, BarInfo, PreloadedChart, SongChartEntry, ChartDifficultyConfig } from './types';
 
 interface NoteSprite {
   container: PIXI.Container;
@@ -31,10 +31,12 @@ type GameState = 'start' | 'playing' | 'paused' | 'result';
 
 interface RuntimeChart {
   song: ChartData;
+  chartEntry: SongChartEntry;
   difficulty: Difficulty;
   notes: NoteData[];
   noteSpeed: number;
   poemLines: string[];
+  difficultyConfig: ChartDifficultyConfig;
 }
 
 type TouchGestureType = 'unknown' | 'tap' | 'hold' | 'swipe';
@@ -141,18 +143,18 @@ export class Game {
     
     this.container.appendChild(this.app.view as HTMLCanvasElement);
     
-    const defaultChart = this.songLibrary.getSong('love-poem');
+    const defaultChartEntry = this.songLibrary.getSong('love-poem')!;
     const defaultSong = getSongById('love-poem')!;
-    const defaultNotes = this.songLibrary.getNotes('love-poem', 'normal');
-    const defaultDifficultyConfig = defaultChart
-      ? defaultChart.difficultyConfigs.normal
-      : defaultSong.difficultyConfigs.normal;
+    const defaultNotes = this.songLibrary.getNotesForDifficulty(defaultChartEntry, 'normal');
+    const defaultDifficultyConfig = defaultChartEntry.difficultyConfigs.normal;
     this.currentChart = {
       song: defaultSong,
+      chartEntry: defaultChartEntry,
       difficulty: 'normal',
       notes: defaultNotes,
       noteSpeed: defaultDifficultyConfig.noteSpeed,
-      poemLines: defaultChart?.metadata.poemLines || defaultSong.poemLines
+      poemLines: defaultChartEntry.metadata.poemLines,
+      difficultyConfig: defaultDifficultyConfig
     };
     
     this.rhythmJudge = new RhythmJudge(
@@ -235,13 +237,8 @@ export class Game {
     
     this.songInfoDisplay = new PIXI.Container();
     
-    const chart = this.songLibrary.getSong(this.currentChart.song.id);
-    const title = chart?.metadata.title || this.currentChart.song.title;
-    const bpm = chart?.metadata.bpm || this.currentChart.song.bpm;
-    const diffLabel = chart 
-      ? this.songLibrary.getDifficultyConfig(chart, this.currentChart.difficulty).label
-      : this.currentChart.song.difficultyConfigs[this.currentChart.difficulty].label;
-    const infoText = `${title}  |  BPM: ${bpm}  |  ${diffLabel}`;
+    const { chartEntry, difficultyConfig } = this.currentChart;
+    const infoText = `${chartEntry.metadata.title}  |  BPM: ${chartEntry.metadata.bpm}  |  ${difficultyConfig.label}`;
     const style = new PIXI.TextStyle({
       fontFamily: 'sans-serif',
       fontSize: 16,
@@ -1327,22 +1324,24 @@ export class Game {
     
     if (!preloaded) return;
     
-    const chart = this.songLibrary.getSong(songId);
-    if (!chart) return;
+    const chartEntry = this.songLibrary.getSong(songId);
+    if (!chartEntry) return;
     
     const { song, notes, noteSpeed, poemLines } = preloaded;
-    const difficultyConfig = this.songLibrary.getDifficultyConfig(chart, difficulty);
+    const difficultyConfig = chartEntry.difficultyConfigs[difficulty];
     
     this.currentChart = {
       song,
+      chartEntry,
       difficulty,
       notes,
       noteSpeed,
-      poemLines
+      poemLines,
+      difficultyConfig
     };
     
     this.rhythmJudge.setConfig(noteSpeed, difficultyConfig.judgeTiming);
-    this.rhythmJudge.setBPM(chart.metadata.bpm);
+    this.rhythmJudge.setBPM(chartEntry.metadata.bpm);
     this.scoreSystem = new ScoreSystem(notes.length);
     
     this.gameState = 'playing';
@@ -1508,35 +1507,24 @@ export class Game {
     let newlyUnlockedSongs: SongWithUnlock[] = [];
 
     if (this.currentChart) {
-      previousBest = ScoreStorage.getBestScore(
-        this.currentChart.song.id,
-        this.currentChart.difficulty
-      );
+      const songId = this.currentChart.chartEntry.metadata.id;
+      const songTitle = this.currentChart.chartEntry.metadata.title;
+      const difficulty = this.currentChart.difficulty;
+
+      previousBest = ScoreStorage.getBestScore(songId, difficulty);
       
       if (!isPractice) {
-        isNewRecord = ScoreStorage.isNewBestScore(
-          this.currentChart.song.id,
-          this.currentChart.difficulty,
-          score
-        );
-        ScoreStorage.saveBestScore(
-          this.currentChart.song.id,
-          this.currentChart.difficulty,
-          score,
-          accuracy
-        );
+        isNewRecord = ScoreStorage.isNewBestScore(songId, difficulty, score);
+        ScoreStorage.saveBestScore(songId, difficulty, score, accuracy);
 
-        const unlockResult = ChapterUnlockManager.evaluateAfterScore(
-          this.currentChart.song.id,
-          this.currentChart.difficulty
-        );
+        const unlockResult = ChapterUnlockManager.evaluateAfterScore(songId, difficulty);
         newlyUnlockedSongs = unlockResult.unlockedSongs;
       }
       
       ScoreStorage.addHistoryEntry(
-        this.currentChart.song.id,
-        this.currentChart.song.title,
-        this.currentChart.difficulty,
+        songId,
+        songTitle,
+        difficulty,
         score,
         accuracy,
         isPractice,
@@ -1544,12 +1532,12 @@ export class Game {
       );
     }
 
-    const poemLines = this.currentChart?.poemLines || [];
+    const poemLines = this.currentChart?.chartEntry.metadata.poemLines || [];
     this.resultScreen.show(
       score,
       poemLines,
       this.charRecords,
-      this.currentChart?.song.id,
+      this.currentChart?.chartEntry.metadata.id,
       this.currentChart?.difficulty,
       isNewRecord,
       previousBest,
@@ -1572,8 +1560,14 @@ export class Game {
       return;
     }
 
-    const songId = this.currentChart.song.id;
+    const songId = this.currentChart.chartEntry.metadata.id;
     const difficulty = this.currentChart.difficulty;
+
+    const chartEntry = this.songLibrary.getSong(songId);
+    if (!chartEntry) {
+      this.showStartScreen();
+      return;
+    }
 
     let preloaded = this.preloadedCharts.get(this.PRELOAD_KEY(songId, difficulty));
     if (!preloaded) {
@@ -1585,18 +1579,20 @@ export class Game {
 
     if (preloaded) {
       const { song, notes, noteSpeed, poemLines } = preloaded;
-      const difficultyConfig = song.difficultyConfigs[difficulty];
+      const difficultyConfig = chartEntry.difficultyConfigs[difficulty];
 
       this.currentChart = {
         song,
+        chartEntry,
         difficulty,
         notes,
         noteSpeed,
-        poemLines
+        poemLines,
+        difficultyConfig
       };
 
       this.rhythmJudge.setConfig(noteSpeed, difficultyConfig.judgeTiming);
-      this.rhythmJudge.setBPM(song.bpm);
+      this.rhythmJudge.setBPM(chartEntry.metadata.bpm);
       this.scoreSystem = new ScoreSystem(notes.length);
 
       this.gameState = 'playing';
