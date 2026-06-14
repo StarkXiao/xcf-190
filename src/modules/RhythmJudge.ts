@@ -4,6 +4,7 @@ interface ActiveNote extends NoteData {
   id: number;
   isJudged: boolean;
   y: number;
+  judgeResult?: JudgeResult;
 }
 
 export class RhythmJudge {
@@ -12,15 +13,10 @@ export class RhythmJudge {
   private currentTime: number = 0;
   private noteSpeed: number = 400;
   private judgeLineY: number = 600;
-  private onJudgeCallback?: (event: JudgeEvent) => void;
 
   constructor(noteSpeed: number, judgeLineY: number) {
     this.noteSpeed = noteSpeed;
     this.judgeLineY = judgeLineY;
-  }
-
-  public setOnJudgeCallback(callback: (event: JudgeEvent) => void): void {
-    this.onJudgeCallback = callback;
   }
 
   public setNotes(notes: NoteData[]): void {
@@ -32,8 +28,9 @@ export class RhythmJudge {
     }));
   }
 
-  public update(_deltaTime: number, currentTime: number): void {
+  public update(currentTime: number): JudgeEvent[] {
     this.currentTime = currentTime;
+    const events: JudgeEvent[] = [];
 
     this.notes.forEach(note => {
       if (note.isJudged) return;
@@ -42,9 +39,18 @@ export class RhythmJudge {
       note.y = this.judgeLineY - (timeUntilJudge / 1000) * this.noteSpeed;
 
       if (timeUntilJudge < -JUDGE_TIMING.miss && !note.isJudged) {
-        this.judgeNote(note, 'miss');
+        note.isJudged = true;
+        note.judgeResult = 'miss';
+        events.push({
+          result: 'miss',
+          time: this.currentTime,
+          lane: note.lane,
+          lyricChar: note.lyricChar
+        });
       }
     });
+
+    return events;
   }
 
   public handleInput(lane: number): JudgeEvent | null {
@@ -58,7 +64,8 @@ export class RhythmJudge {
     const result = this.getJudgeResult(timeDiff);
 
     if (result) {
-      this.judgeNote(targetNote, result);
+      targetNote.isJudged = true;
+      targetNote.judgeResult = result;
       return {
         result,
         time: this.currentTime,
@@ -88,19 +95,6 @@ export class RhythmJudge {
     if (timeDiff <= JUDGE_TIMING.good) return 'good';
     if (timeDiff <= JUDGE_TIMING.miss) return 'miss';
     return null;
-  }
-
-  private judgeNote(note: ActiveNote, result: JudgeResult): void {
-    note.isJudged = true;
-    
-    if (this.onJudgeCallback) {
-      this.onJudgeCallback({
-        result,
-        time: this.currentTime,
-        lane: note.lane,
-        lyricChar: note.lyricChar
-      });
-    }
   }
 
   public getActiveNotes(): ActiveNote[] {

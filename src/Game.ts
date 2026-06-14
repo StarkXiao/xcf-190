@@ -6,7 +6,7 @@ import { EffectRenderer } from './modules/EffectRenderer';
 import { ResultScreen } from './modules/ResultScreen';
 import { StartScreen } from './modules/StartScreen';
 import { sampleChart, lovePoemLines } from './data/sampleChart';
-import { JudgeEvent, LANE_COUNT, NoteData } from './types';
+import { JudgeEvent, LANE_COUNT, NoteData, CharHitRecord } from './types';
 
 interface NoteSprite {
   container: PIXI.Container;
@@ -34,8 +34,7 @@ export class Game {
   
   private startTime: number = 0;
   private currentTime: number = 0;
-  private litChars: string[] = [];
-  private litCharIndex: number = 0;
+  private charRecords: CharHitRecord[] = [];
   
   private comboDisplay: PIXI.Text;
   private scoreDisplay: PIXI.Text;
@@ -227,10 +226,6 @@ export class Game {
   }
 
   private setupCallbacks(): void {
-    this.rhythmJudge.setOnJudgeCallback((event: JudgeEvent) => {
-      this.processJudgeEvent(event);
-    });
-    
     this.startScreen.setOnStartCallback(() => {
       this.startGame();
     });
@@ -246,11 +241,13 @@ export class Game {
     const x = event.lane * this.laneWidth + this.laneWidth / 2;
     this.effectRenderer.spawnHitEffect(x, this.judgeLineY, event.lane, event.result);
     
-    if (event.result !== 'miss') {
-      this.litChars.push(event.lyricChar);
-      this.effectRenderer.addLitCharacter(event.lyricChar, this.litCharIndex);
-      this.litCharIndex++;
-    }
+    const hit = event.result !== 'miss';
+    this.charRecords.push({
+      char: event.lyricChar,
+      hit,
+      result: event.result
+    });
+    this.effectRenderer.addLyricChar(event.lyricChar, this.charRecords.length - 1, hit);
     
     this.updateUI();
   }
@@ -265,7 +262,9 @@ export class Game {
     
     this.currentTime = performance.now() - this.startTime;
     
-    this.rhythmJudge.update(delta, this.currentTime);
+    const missEvents = this.rhythmJudge.update(this.currentTime);
+    missEvents.forEach(event => this.processJudgeEvent(event));
+    
     this.effectRenderer.update(delta);
     
     this.updateNoteSprites();
@@ -332,8 +331,7 @@ export class Game {
 
   private resetGame(): void {
     this.currentTime = 0;
-    this.litChars = [];
-    this.litCharIndex = 0;
+    this.charRecords = [];
     
     this.rhythmJudge.reset();
     this.scoreSystem.reset();
@@ -353,7 +351,7 @@ export class Game {
     this.gameContainer.visible = false;
     
     const score = this.scoreSystem.getScore();
-    this.resultScreen.show(score, lovePoemLines, this.litChars);
+    this.resultScreen.show(score, lovePoemLines, this.charRecords);
   }
 
   private restartGame(): void {

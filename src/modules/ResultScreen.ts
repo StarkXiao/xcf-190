@@ -1,5 +1,5 @@
 import * as PIXI from 'pixi.js';
-import { ScoreData } from '../types';
+import { ScoreData, CharHitRecord } from '../types';
 
 export class ResultScreen {
   private app: PIXI.Application;
@@ -13,7 +13,7 @@ export class ResultScreen {
     this.app.stage.addChild(this.container);
   }
 
-  public show(score: ScoreData, poemLines: string[], litChars: string[]): void {
+  public show(score: ScoreData, _poemLines: string[], charRecords: CharHitRecord[]): void {
     this.container.visible = true;
     this.container.removeChildren();
     
@@ -23,13 +23,13 @@ export class ResultScreen {
     mask.endFill();
     this.container.addChild(mask);
     
-    this.createPoemDisplay(poemLines, litChars);
+    this.createPoemDisplay(charRecords);
     this.createScoreDisplay(score);
     this.createRestartButton();
     this.animateIn();
   }
 
-  private createPoemDisplay(poemLines: string[], _litChars: string[]): void {
+  private createPoemDisplay(charRecords: CharHitRecord[]): void {
     const poemContainer = new PIXI.Container();
     poemContainer.x = this.app.screen.width / 2;
     poemContainer.y = 150;
@@ -49,42 +49,85 @@ export class ResultScreen {
     title.y = -60;
     poemContainer.addChild(title);
     
-    const poemStyle = new PIXI.TextStyle({
-      fontFamily: 'serif',
-      fontSize: 28,
-      fill: 0xffffff,
-      align: 'center',
-      lineHeight: 50
-    });
+    const charsPerLine = 8;
+    const charSpacing = 36;
+    const lineHeight = 50;
     
-    poemLines.forEach((line, index) => {
-      const text = new PIXI.Text(line, poemStyle);
-      text.anchor.set(0.5);
-      text.y = index * 50;
-      text.alpha = 0;
-      poemContainer.addChild(text);
+    for (let i = 0; i < charRecords.length; i++) {
+      const record = charRecords[i];
+      const lineIndex = Math.floor(i / charsPerLine);
+      const colIndex = i % charsPerLine;
+      const lineCharCount = Math.min(charsPerLine, charRecords.length - lineIndex * charsPerLine);
+      const lineStartX = -(lineCharCount - 1) * charSpacing / 2;
       
-      this.animateTextIn(text, index * 200);
-    });
+      const charStyle = record.hit
+        ? new PIXI.TextStyle({
+            fontFamily: 'serif',
+            fontSize: 28,
+            fill: 0xffd700,
+            fontWeight: 'bold',
+            stroke: 0x8b4513,
+            strokeThickness: 2,
+            dropShadow: true,
+            dropShadowColor: 0xffd700,
+            dropShadowBlur: 8,
+            align: 'center'
+          })
+        : new PIXI.TextStyle({
+            fontFamily: 'serif',
+            fontSize: 28,
+            fill: 0x555555,
+            stroke: 0x333333,
+            strokeThickness: 1,
+            align: 'center'
+          });
+      
+      const displayChar = record.hit ? record.char : '＿';
+      const charText = new PIXI.Text(displayChar, charStyle);
+      charText.anchor.set(0.5);
+      charText.x = lineStartX + colIndex * charSpacing;
+      charText.y = lineIndex * lineHeight;
+      charText.alpha = 0;
+      charText.scale.set(0);
+      poemContainer.addChild(charText);
+      
+      this.animateCharReveal(charText, record.hit, 500 + i * 120);
+    }
     
     this.container.addChild(poemContainer);
   }
 
-  private animateTextIn(text: PIXI.Text, delay: number): void {
+  private animateCharReveal(text: PIXI.Text, hit: boolean, delay: number): void {
     setTimeout(() => {
       const startTime = Date.now();
-      const duration = 800;
+      const duration = hit ? 600 : 400;
       
       const animate = () => {
         const elapsed = Date.now() - startTime;
         const progress = Math.min(elapsed / duration, 1);
-        const eased = 1 - Math.pow(1 - progress, 3);
         
-        text.alpha = eased;
-        text.y += (1 - eased) * 30;
+        if (hit) {
+          const eased = 1 - Math.pow(1 - progress, 3);
+          text.scale.set(eased);
+          text.alpha = eased;
+          if (progress >= 0.5 && progress < 0.55) {
+            text.scale.set(1.2);
+          }
+        } else {
+          text.alpha = progress * 0.7;
+          text.scale.set(progress * 0.9);
+        }
         
         if (progress < 1) {
           requestAnimationFrame(animate);
+        } else {
+          if (hit) {
+            text.scale.set(1);
+            text.alpha = 1;
+          } else {
+            text.scale.set(0.9);
+            text.alpha = 0.7;
+          }
         }
       };
       

@@ -32,12 +32,19 @@ export interface ScoreData {
   rating: string;
 }
 
+export interface CharHitRecord {
+  char: string;
+  hit: boolean;
+  result: JudgeResult;
+}
+
 export interface GameState {
   isPlaying: boolean;
   isPaused: boolean;
   currentTime: number;
   score: ScoreData;
   litChars: string[];
+  charRecords: CharHitRecord[];
 }
 
 export const JUDGE_TIMING = {

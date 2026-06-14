@@ -23,6 +23,7 @@ export class EffectRenderer {
   private laneColors: number[] = [0xff6b9d, 0x6bff9d, 0x6b9dff, 0xffd93d];
   private litCharacters: PIXI.Text[] = [];
   private lyricContainer: PIXI.Container;
+  private charCount: number = 0;
 
   constructor(app: PIXI.Application) {
     this.app = app;
@@ -168,37 +169,55 @@ export class EffectRenderer {
     });
   }
 
-  public addLitCharacter(char: string, index: number): void {
-    const style = new PIXI.TextStyle({
-      fontFamily: 'serif',
-      fontSize: 36,
-      fill: 0xffd700,
-      fontWeight: 'bold',
-      stroke: 0x8b4513,
-      strokeThickness: 2,
-      dropShadow: true,
-      dropShadowColor: 0xffd700,
-      dropShadowBlur: 10
-    });
+  public addLyricChar(char: string, index: number, hit: boolean): void {
+    const style = hit
+      ? new PIXI.TextStyle({
+          fontFamily: 'serif',
+          fontSize: 30,
+          fill: 0xffd700,
+          fontWeight: 'bold',
+          stroke: 0x8b4513,
+          strokeThickness: 2,
+          dropShadow: true,
+          dropShadowColor: 0xffd700,
+          dropShadowBlur: 8
+        })
+      : new PIXI.TextStyle({
+          fontFamily: 'serif',
+          fontSize: 30,
+          fill: 0x555555,
+          fontWeight: 'bold',
+          stroke: 0x333333,
+          strokeThickness: 1
+        });
     
-    const text = new PIXI.Text(char, style);
+    const displayChar = hit ? char : '＿';
+    const text = new PIXI.Text(displayChar, style);
     text.anchor.set(0.5);
-    text.x = index * 40 - (this.litCharacters.length * 40) / 2;
-    text.y = 0;
     text.scale.set(0);
     text.alpha = 0;
     
     this.lyricContainer.addChild(text);
     this.litCharacters.push(text);
+    this.charCount++;
     
     this.repositionLyrics();
     this.animateCharacterIn(text, index);
   }
 
   private repositionLyrics(): void {
-    const totalWidth = this.litCharacters.length * 40;
+    const charsPerLine = 8;
+    const charSpacing = 34;
+    const lineHeight = 42;
+    
     this.litCharacters.forEach((text, index) => {
-      text.x = index * 40 - totalWidth / 2 + 20;
+      const lineIndex = Math.floor(index / charsPerLine);
+      const colIndex = index % charsPerLine;
+      const lineLen = Math.min(charsPerLine, this.charCount - lineIndex * charsPerLine);
+      const lineStartX = -(lineLen - 1) * charSpacing / 2;
+      
+      text.x = lineStartX + colIndex * charSpacing;
+      text.y = lineIndex * lineHeight;
     });
   }
 
@@ -381,6 +400,7 @@ export class EffectRenderer {
       text.destroy();
     });
     this.litCharacters = [];
+    this.charCount = 0;
   }
 
   public destroy(): void {
