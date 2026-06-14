@@ -481,6 +481,8 @@ export class Game {
   private handleInput(lane: number, isPress: boolean): void {
     if (this.gameState !== 'playing') return;
     
+    const isSlideStartPress = isPress && this.hasUnstartedSlideNoteOnLane(lane);
+    
     const judgeEvent = this.rhythmJudge.handleInput(lane, isPress);
     
     if (isPress) {
@@ -495,8 +497,26 @@ export class Game {
     }
     
     if (judgeEvent) {
+      if (judgeEvent.noteType === 'slide' && !isSlideStartPress) {
+        const startLane = this.rhythmJudge.getNoteStartLane(judgeEvent.noteId);
+        if (startLane !== undefined && startLane !== judgeEvent.lane) {
+          const fromX = startLane * this.laneWidth + this.laneWidth / 2;
+          const toX = judgeEvent.lane * this.laneWidth + this.laneWidth / 2;
+          this.effectRenderer.addSlideTrail(fromX, toX, this.judgeLineY, startLane);
+        }
+      }
       this.processJudgeEvent(judgeEvent);
     }
+  }
+
+  private hasUnstartedSlideNoteOnLane(lane: number): boolean {
+    const activeNotes = this.rhythmJudge.getActiveNotes();
+    return activeNotes.some(n => 
+      n.type === 'slide' && 
+      n.lane === lane && 
+      n.slideStartTime === undefined &&
+      !n.isJudged
+    );
   }
 
   private flashLane(lane: number): void {

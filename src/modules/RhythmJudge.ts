@@ -125,6 +125,11 @@ export class RhythmJudge {
   public handleInput(lane: number, isPress: boolean = true): JudgeEvent | null {
     if (isPress) {
       this.pressedLanes.add(lane);
+
+      const slideCompleteEvent = this.tryCompleteSlideByKeyPress(lane);
+      if (slideCompleteEvent) {
+        return slideCompleteEvent;
+      }
       
       const activeHoldNote = this.laneHoldMap.get(lane);
       if (activeHoldNote !== undefined) {
@@ -232,6 +237,59 @@ export class RhythmJudge {
     return null;
   }
 
+  private tryCompleteSlideByKeyPress(toLane: number): JudgeEvent | null {
+    const activeSlideNote = this.notes.find(n => 
+      !n.isJudged && 
+      n.type === 'slide' && 
+      n.slideStartTime !== undefined &&
+      n.endLane === toLane &&
+      n.lane !== toLane
+    );
+
+    if (activeSlideNote && !activeSlideNote.isJudged) {
+      const slideDuration = this.currentTime - (activeSlideNote.slideStartTime || activeSlideNote.time);
+      const expectedDuration = activeSlideNote.duration || 500;
+      const slideRatio = slideDuration / expectedDuration;
+      
+      let result: JudgeResult = 'miss';
+      if (slideRatio >= 0.9) result = 'perfect';
+      else if (slideRatio >= 0.7) result = 'great';
+      else if (slideRatio >= 0.5) result = 'good';
+      
+      activeSlideNote.isJudged = true;
+      activeSlideNote.judgeResult = result;
+      
+      return {
+        result,
+        time: this.currentTime,
+        lane: toLane,
+        lyricChar: activeSlideNote.lyricChar,
+        noteType: activeSlideNote.type,
+        noteId: activeSlideNote.id
+      };
+    }
+
+    return null;
+  }
+
+  public getActiveSlideNoteByEndLane(endLane: number): ActiveNote | undefined {
+    return this.notes.find(n => 
+      !n.isJudged && 
+      n.type === 'slide' && 
+      n.slideStartTime !== undefined &&
+      n.endLane === endLane
+    );
+  }
+
+  public hasActiveSlideStartingFrom(lane: number): boolean {
+    return this.notes.some(n => 
+      !n.isJudged && 
+      n.type === 'slide' && 
+      n.slideStartTime !== undefined &&
+      n.lane === lane
+    );
+  }
+
   private findClosestNote(lane: number): ActiveNote | null {
     const unjudgedNotes = this.notes
       .filter(note => 
@@ -296,5 +354,13 @@ export class RhythmJudge {
 
   public getNoteType(noteId: number): NoteType | undefined {
     return this.notes.find(n => n.id === noteId)?.type;
+  }
+
+  public getNoteStartLane(noteId: number): number | undefined {
+    return this.notes.find(n => n.id === noteId)?.lane;
+  }
+
+  public getNoteEndLane(noteId: number): number | undefined {
+    return this.notes.find(n => n.id === noteId)?.endLane;
   }
 }
