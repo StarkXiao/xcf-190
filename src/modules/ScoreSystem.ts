@@ -3,6 +3,7 @@ import { JudgeResult, ScoreData, SCORE_VALUE, NoteType, NOTE_TYPE_SCORE_MULTIPLI
 export class ScoreSystem {
   private scoreData: ScoreData;
   private totalNotes: number;
+  private scoreMultiplier: number = 1.0;
 
   constructor(totalNotes: number) {
     this.totalNotes = totalNotes;
@@ -46,7 +47,8 @@ export class ScoreSystem {
     const baseScore = SCORE_VALUE[result];
     const typeMultiplier = NOTE_TYPE_SCORE_MULTIPLIER[noteType];
     const comboBonus = Math.floor(this.scoreData.combo / 10) * 10;
-    this.scoreData.score += Math.floor(baseScore * typeMultiplier) + comboBonus;
+    const rawScore = Math.floor(baseScore * typeMultiplier) + comboBonus;
+    this.scoreData.score += Math.floor(rawScore * this.scoreMultiplier);
   }
 
   private updateRating(): void {
@@ -110,6 +112,7 @@ export class ScoreSystem {
 
   public reset(): void {
     this.scoreData = this.createInitialScore();
+    this.scoreMultiplier = 1.0;
   }
 
   public getCombo(): number {
@@ -122,5 +125,13 @@ export class ScoreSystem {
 
   public getRating(): string {
     return this.scoreData.rating;
+  }
+
+  public setScoreMultiplier(multiplier: number): void {
+    this.scoreMultiplier = Math.max(1.0, multiplier);
+  }
+
+  public getScoreMultiplier(): number {
+    return this.scoreMultiplier;
   }
 }

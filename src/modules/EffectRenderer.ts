@@ -38,6 +38,13 @@ interface AtmosphereState {
   ambientParticleData: { vx: number; vy: number; baseY: number; phase: number }[];
 }
 
+interface ResonanceEffect {
+  pages: PIXI.Sprite[];
+  pageData: { angle: number; speed: number; rotationSpeed: number; baseY: number; amplitude: number; phase: number }[];
+  glowRing: PIXI.Graphics;
+  glowIntensity: number;
+}
+
 const ATMOSPHERE_PRESETS = [
   { color: 0x0a0a1a, alpha: 0 },
   { color: 0x1a0a3a, alpha: 0.15 },
@@ -63,6 +70,9 @@ export class EffectRenderer {
   private lyricContainer: PIXI.Container;
   private charCount: number = 0;
   private atmosphere: AtmosphereState;
+  private resonance: ResonanceEffect;
+  private resonanceIntensity: number = 0;
+  private targetResonanceIntensity: number = 0;
 
   constructor(app: PIXI.Application) {
     this.app = app;
@@ -75,6 +85,7 @@ export class EffectRenderer {
     this.app.stage.addChild(this.lyricContainer);
 
     this.atmosphere = this.createAtmosphere();
+    this.resonance = this.createResonanceEffect();
   }
 
   private createAtmosphere(): AtmosphereState {
@@ -128,6 +139,66 @@ export class EffectRenderer {
     });
   }
 
+  private createResonanceEffect(): ResonanceEffect {
+    const pages: PIXI.Sprite[] = [];
+    const pageData: { angle: number; speed: number; rotationSpeed: number; baseY: number; amplitude: number; phase: number }[] = [];
+
+    for (let i = 0; i < 15; i++) {
+      const g = new PIXI.Graphics();
+      g.beginFill(0xffffee, 0.9);
+      g.drawRoundedRect(-15, -20, 30, 40, 3);
+      g.endFill();
+      g.lineStyle(1, 0xd4a574, 0.8);
+      g.drawRoundedRect(-15, -20, 30, 40, 3);
+      g.lineStyle(0.5, 0x8b7355, 0.4);
+      g.moveTo(-12, -14);
+      g.lineTo(12, -14);
+      g.moveTo(-12, -6);
+      g.lineTo(12, -6);
+      g.moveTo(-12, 2);
+      g.lineTo(12, 2);
+      g.moveTo(-12, 10);
+      g.lineTo(12, 10);
+
+      const texture = this.app.renderer.generateTexture(g);
+      const sprite = new PIXI.Sprite(texture);
+      sprite.anchor.set(0.5);
+      sprite.alpha = 0;
+      sprite.scale.set(0.8 + Math.random() * 0.4);
+
+      pages.push(sprite);
+      pageData.push({
+        angle: Math.random() * Math.PI * 2,
+        speed: 0.3 + Math.random() * 0.5,
+        rotationSpeed: (Math.random() - 0.5) * 0.02,
+        baseY: Math.random() * this.app.screen.height,
+        amplitude: 30 + Math.random() * 50,
+        phase: Math.random() * Math.PI * 2
+      });
+    }
+
+    const glowRing = new PIXI.Graphics();
+    glowRing.alpha = 0;
+
+    return {
+      pages,
+      pageData,
+      glowRing,
+      glowIntensity: 0
+    };
+  }
+
+  public initResonanceEffect(parent: PIXI.Container): void {
+    parent.addChild(this.resonance.glowRing);
+    this.resonance.pages.forEach(p => {
+      parent.addChild(p);
+    });
+  }
+
+  public setResonanceIntensity(intensity: number): void {
+    this.targetResonanceIntensity = Math.max(0, Math.min(1, intensity));
+  }
+
   public setAtmosphereLevel(lineIndex: number, _totalLines: number): void {
     const level = Math.min(lineIndex + 1, ATMOSPHERE_PRESETS.length - 1);
     const preset = ATMOSPHERE_PRESETS[level];
@@ -168,6 +239,49 @@ export class EffectRenderer {
     this.atmosphere.currentAlpha = 0;
     this.atmosphere.overlay.clear();
     this.atmosphere.ambientParticles.forEach(p => {
+      p.alpha = 0;
+    });
+  }
+
+  private updateResonance(): void {
+    this.resonanceIntensity += (this.targetResonanceIntensity - this.resonanceIntensity) * 0.05;
+
+    const centerX = this.app.screen.width / 2;
+    const centerY = this.app.screen.height / 2;
+    const now = Date.now() / 1000;
+
+    if (this.resonanceIntensity > 0.01) {
+      const glowRadius = 100 + this.resonanceIntensity * 300 + Math.sin(now * 3) * 20;
+      this.resonance.glowRing.clear();
+      this.resonance.glowRing.beginFill(0xffd700, this.resonanceIntensity * 0.15);
+      this.resonance.glowRing.drawCircle(centerX, centerY, glowRadius);
+      this.resonance.glowRing.endFill();
+      this.resonance.glowRing.lineStyle(3, 0xffd700, this.resonanceIntensity * 0.5);
+      this.resonance.glowRing.drawCircle(centerX, centerY, glowRadius * 0.7);
+      this.resonance.glowRing.alpha = this.resonanceIntensity;
+    } else {
+      this.resonance.glowRing.clear();
+      this.resonance.glowRing.alpha = 0;
+    }
+
+    this.resonance.pages.forEach((page, i) => {
+      const data = this.resonance.pageData[i];
+      data.angle += data.speed * 0.008 * (0.5 + this.resonanceIntensity);
+      const radius = 150 + this.resonanceIntensity * 200 + Math.sin(now * 2 + data.phase) * data.amplitude * 0.3;
+      
+      page.x = centerX + Math.cos(data.angle) * radius;
+      page.y = data.baseY + Math.sin(now + data.phase) * data.amplitude * 0.5;
+      page.rotation += data.rotationSpeed * (1 + this.resonanceIntensity);
+      page.alpha = this.resonanceIntensity * (0.4 + Math.sin(now * 2 + data.phase) * 0.3);
+      page.scale.set(0.6 + this.resonanceIntensity * 0.6 + Math.sin(now * 3 + data.phase) * 0.1);
+    });
+  }
+
+  public resetResonance(): void {
+    this.targetResonanceIntensity = 0;
+    this.resonanceIntensity = 0;
+    this.resonance.glowRing.clear();
+    this.resonance.pages.forEach(p => {
       p.alpha = 0;
     });
   }
@@ -350,12 +464,21 @@ export class EffectRenderer {
   }
 
   private spawnParticles(x: number, y: number, lane: number, noteType: NoteType = 'tap'): void {
-    const particleCount = noteType === 'tap' ? 12 : noteType === 'hold' ? 20 : 24;
+    const resonanceBoost = 1 + this.resonanceIntensity * 0.8;
+    const particleCount = Math.floor((noteType === 'tap' ? 12 : noteType === 'hold' ? 20 : 24) * resonanceBoost);
     const color = this.laneColors[lane % LANE_COUNT];
     
     for (let i = 0; i < particleCount; i++) {
       const graphics = new PIXI.Graphics();
-      const size = noteType === 'tap' ? 3 + Math.random() * 4 : 4 + Math.random() * 6;
+      const baseSize = noteType === 'tap' ? 3 + Math.random() * 4 : 4 + Math.random() * 6;
+      const size = baseSize * (1 + this.resonanceIntensity * 0.5);
+      
+      if (this.resonanceIntensity > 0.3) {
+        graphics.beginFill(0xffd700, this.resonanceIntensity * 0.5);
+        graphics.drawCircle(0, 0, size * 1.5);
+        graphics.endFill();
+      }
+      
       graphics.beginFill(color, 1);
       graphics.drawCircle(0, 0, size);
       graphics.endFill();
@@ -367,7 +490,8 @@ export class EffectRenderer {
       sprite.y = y;
       
       const angle = (Math.PI * 2 * i) / particleCount + Math.random() * 0.5;
-      const speed = noteType === 'tap' ? 2 + Math.random() * 4 : 3 + Math.random() * 5;
+      const baseSpeed = noteType === 'tap' ? 2 + Math.random() * 4 : 3 + Math.random() * 5;
+      const speed = baseSpeed * resonanceBoost;
       
       this.container.addChild(sprite);
       this.particles.push({
@@ -394,14 +518,22 @@ export class EffectRenderer {
       slide: 'SLIDE '
     };
     
+    const baseFontSize = noteType === 'tap' ? 32 : 36;
+    const fontSize = baseFontSize * (1 + this.resonanceIntensity * 0.3);
+    const strokeThickness = 3 + this.resonanceIntensity * 2;
+    
     const style = new PIXI.TextStyle({
       fontFamily: 'sans-serif',
-      fontSize: noteType === 'tap' ? 32 : 36,
+      fontSize: fontSize,
       fontWeight: 'bold',
       fill: colors[result],
       stroke: 0x000000,
-      strokeThickness: 3,
-      align: 'center'
+      strokeThickness: strokeThickness,
+      align: 'center',
+      dropShadow: this.resonanceIntensity > 0.2,
+      dropShadowColor: this.resonanceIntensity > 0.5 ? 0xffd700 : colors[result],
+      dropShadowBlur: this.resonanceIntensity * 10,
+      dropShadowDistance: 0
     });
     
     const displayText = typeLabels[noteType] + result.toUpperCase();
@@ -492,6 +624,7 @@ export class EffectRenderer {
 
   public update(_deltaTime: number): void {
     this.updateAtmosphere();
+    this.updateResonance();
 
     this.particles = this.particles.filter(particle => {
       particle.sprite.x += particle.vx;
@@ -649,15 +782,25 @@ export class EffectRenderer {
       text.text = `${combo} COMBO`;
       text.visible = true;
       
-      const scale = 1 + Math.min(combo * 0.01, 0.3);
-      text.scale.set(scale);
+      const comboScale = 1 + Math.min(combo * 0.01, 0.3);
+      const resonanceScale = 1 + this.resonanceIntensity * 0.2;
+      text.scale.set(comboScale * resonanceScale);
       
-      if (combo >= 50) {
+      if (this.resonanceIntensity > 0.3) {
         text.style.fill = 0xffd700;
+        text.style.dropShadow = true;
+        text.style.dropShadowColor = 0xffd700;
+        text.style.dropShadowBlur = 10 + this.resonanceIntensity * 15;
+        text.style.dropShadowDistance = 0;
+      } else if (combo >= 50) {
+        text.style.fill = 0xffd700;
+        text.style.dropShadow = false;
       } else if (combo >= 20) {
         text.style.fill = 0xff6b9d;
+        text.style.dropShadow = false;
       } else {
         text.style.fill = 0xffffff;
+        text.style.dropShadow = false;
       }
     } else {
       text.visible = false;
@@ -689,6 +832,14 @@ export class EffectRenderer {
     this.slideTrails = [];
   }
 
+  public resetAllEffects(): void {
+    this.clearLitCharacters();
+    this.clearHoldEffects();
+    this.clearSlideTrails();
+    this.resetAtmosphere();
+    this.resetResonance();
+  }
+
   public destroy(): void {
     this.particles.forEach(p => {
       p.sprite.texture.destroy();
@@ -700,6 +851,12 @@ export class EffectRenderer {
       e.text.destroy();
     });
     this.judgeEffects = [];
+    
+    this.resonance.pages.forEach(p => {
+      p.texture.destroy();
+      p.destroy();
+    });
+    this.resonance.glowRing.destroy();
     
     this.clearHoldEffects();
     this.clearSlideTrails();

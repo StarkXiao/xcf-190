@@ -7,8 +7,9 @@ import { StartScreen } from './modules/StartScreen';
 import { ScoreStorage } from './modules/ScoreStorage';
 import { LyricProgress } from './modules/LyricProgress';
 import { InputConfigManager } from './modules/InputConfigManager';
+import { BookResonance } from './modules/BookResonance';
 import { getSongById, getNotesForDifficulty } from './data/songs';
-import { ChartData, CharHitRecord, Difficulty, JudgeEvent, JudgeResult, LANE_COUNT, NoteData, NoteType, InputConfig } from './types';
+import { ChartData, CharHitRecord, Difficulty, JudgeEvent, JudgeResult, LANE_COUNT, NoteData, NoteType, InputConfig, ResonanceState } from './types';
 
 interface NoteSprite {
   container: PIXI.Container;
@@ -56,6 +57,9 @@ export class Game {
   private resultScreen: ResultScreen;
   private startScreen: StartScreen;
   private lyricProgress: LyricProgress;
+  private bookResonance: BookResonance;
+  private resonanceDisplay?: PIXI.Container;
+  private removeResonanceListener?: () => void;
   
   private gameContainer: PIXI.Container;
   private noteSprites: Map<number, NoteSprite> = new Map();
@@ -130,6 +134,7 @@ export class Game {
       defaultSong.difficultyConfigs.normal.judgeTiming
     );
     this.scoreSystem = new ScoreSystem(defaultNotes.length);
+    this.bookResonance = new BookResonance();
     
     this.effectRenderer = new EffectRenderer(this.app);
     this.resultScreen = new ResultScreen(this.app);
@@ -165,6 +170,7 @@ export class Game {
     this.gameContainer.addChildAt(bg, 0);
     
     this.effectRenderer.initAtmosphere(this.gameContainer);
+    this.effectRenderer.initResonanceEffect(this.gameContainer);
     
     const laneBg = this.effectRenderer.createLaneBackground(LANE_COUNT);
     this.gameContainer.addChildAt(laneBg, 1);
@@ -176,6 +182,7 @@ export class Game {
     this.createLaneHints();
     this.createPauseButton();
     this.createPauseMenu();
+    this.createResonanceDisplay();
   }
 
   private createSongInfoOverlay(): void {
@@ -573,6 +580,103 @@ export class Game {
     return buttonContainer;
   }
 
+  private createResonanceDisplay(): void {
+    const container = new PIXI.Container();
+    container.x = 20;
+    container.y = 60;
+
+    const bg = new PIXI.Graphics();
+    bg.beginFill(0x000000, 0.5);
+    bg.drawRoundedRect(0, 0, 160, 36, 8);
+    bg.endFill();
+    bg.lineStyle(1, 0xffd700, 0.3);
+    bg.drawRoundedRect(0, 0, 160, 36, 8);
+    container.addChild(bg);
+
+    const labelStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 14,
+      fontWeight: 'bold',
+      fill: 0xaaaaaa,
+      align: 'left'
+    });
+    const label = new PIXI.Text('书页共鸣', labelStyle);
+    label.x = 10;
+    label.y = 6;
+    container.addChild(label);
+
+    const levelText = new PIXI.Text('Lv.0', new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 16,
+      fontWeight: 'bold',
+      fill: 0xffd700,
+      align: 'right'
+    }));
+    levelText.anchor.set(1, 0);
+    levelText.x = 150;
+    levelText.y = 5;
+    levelText.name = 'levelText';
+    container.addChild(levelText);
+
+    const progressBg = new PIXI.Graphics();
+    progressBg.beginFill(0x333333, 0.8);
+    progressBg.drawRoundedRect(10, 24, 140, 8, 4);
+    progressBg.endFill();
+    container.addChild(progressBg);
+
+    const progressBar = new PIXI.Graphics();
+    progressBar.name = 'progressBar';
+    container.addChild(progressBar);
+
+    const multiplierText = new PIXI.Text('x1.0', new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 12,
+      fontWeight: 'bold',
+      fill: 0x88ccff,
+      align: 'right'
+    }));
+    multiplierText.anchor.set(1, 0);
+    multiplierText.x = 150;
+    multiplierText.y = -14;
+    multiplierText.name = 'multiplierText';
+    container.addChild(multiplierText);
+
+    container.alpha = 0.6;
+    this.resonanceDisplay = container;
+    this.uiLayer.addChild(container);
+  }
+
+  private updateResonanceDisplay(state: ResonanceState): void {
+    if (!this.resonanceDisplay) return;
+
+    const levelText = this.resonanceDisplay.getChildByName('levelText') as PIXI.Text;
+    const progressBar = this.resonanceDisplay.getChildByName('progressBar') as PIXI.Graphics;
+    const multiplierText = this.resonanceDisplay.getChildByName('multiplierText') as PIXI.Text;
+
+    if (levelText) {
+      levelText.text = `Lv.${state.level}`;
+      levelText.style.fill = state.level > 0 ? 0xffd700 : 0x666666;
+    }
+
+    if (progressBar) {
+      progressBar.clear();
+      const progressWidth = 140 * state.progress;
+      if (progressWidth > 0) {
+        const color = state.level >= 4 ? 0xff6b9d : state.level >= 2 ? 0xffd700 : 0x6b9dff;
+        progressBar.beginFill(color, state.level > 0 ? 0.9 : 0.3);
+        progressBar.drawRoundedRect(10, 24, progressWidth, 8, 4);
+        progressBar.endFill();
+      }
+    }
+
+    if (multiplierText) {
+      multiplierText.text = `x${state.scoreMultiplier.toFixed(1)}`;
+      multiplierText.style.fill = state.level > 0 ? 0xffd700 : 0x666666;
+    }
+
+    this.resonanceDisplay.alpha = state.isActive ? 0.95 : 0.5;
+  }
+
   private createScoreDisplay(): PIXI.Text {
     const style = new PIXI.TextStyle({
       fontFamily: 'sans-serif',
@@ -710,9 +814,16 @@ export class Game {
     this.lyricProgress.setOnLineCompleteCallback((lineIndex: number, totalLines: number) => {
       this.effectRenderer.setAtmosphereLevel(lineIndex, totalLines);
     });
+
+    this.removeResonanceListener = this.bookResonance.addChangeListener((state: ResonanceState) => {
+      this.scoreSystem.setScoreMultiplier(state.scoreMultiplier);
+      this.effectRenderer.setResonanceIntensity(state.effectIntensity);
+      this.updateResonanceDisplay(state);
+    });
   }
 
   private processJudgeEvent(event: JudgeEvent): void {
+    this.bookResonance.onJudgeResult(event.result);
     this.scoreSystem.addJudgeResult(event.result, event.noteType);
     
     const x = event.lane * this.laneWidth + this.laneWidth / 2;
@@ -748,6 +859,7 @@ export class Game {
     const missEvents = this.rhythmJudge.update(this.currentTime);
     missEvents.forEach(event => this.processJudgeEvent(event));
     
+    this.bookResonance.update(delta);
     this.effectRenderer.update(delta);
     this.lyricProgress.update();
     
@@ -874,10 +986,8 @@ export class Game {
     if (this.scoreSystem) {
       this.scoreSystem.reset();
     }
-    this.effectRenderer.clearLitCharacters();
-    this.effectRenderer.clearHoldEffects();
-    this.effectRenderer.clearSlideTrails();
-    this.effectRenderer.resetAtmosphere();
+    this.bookResonance.reset();
+    this.effectRenderer.resetAllEffects();
     
     this.lyricProgress.reset();
     this.lyricProgress.setVisible(false);
@@ -1017,6 +1127,10 @@ export class Game {
     if (this.removeConfigListener) {
       this.removeConfigListener();
     }
+    if (this.removeResonanceListener) {
+      this.removeResonanceListener();
+    }
+    this.effectRenderer.destroy();
     this.app.destroy(true);
   }
 }

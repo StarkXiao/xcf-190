@@ -245,3 +245,45 @@ export const RESERVED_KEYS = new Set([
   'Tab', 'Enter', 'Backspace', 'Delete',
   'Shift', 'Control', 'Alt', 'Meta', 'CapsLock'
 ]);
+
+export type ResonanceLevel = 0 | 1 | 2 | 3 | 4 | 5;
+
+export interface ResonanceState {
+  level: ResonanceLevel;
+  progress: number;
+  scoreMultiplier: number;
+  effectIntensity: number;
+  consecutiveHighJudgments: number;
+  isActive: boolean;
+}
+
+export const RESONANCE_THRESHOLDS = {
+  level1: 5,
+  level2: 12,
+  level3: 20,
+  level4: 30,
+  level5: 45
+} as const;
+
+export const RESONANCE_SCORE_MULTIPLIERS: Record<ResonanceLevel, number> = {
+  0: 1.0,
+  1: 1.1,
+  2: 1.25,
+  3: 1.45,
+  4: 1.7,
+  5: 2.0
+} as const;
+
+export const RESONANCE_EFFECT_INTENSITY: Record<ResonanceLevel, number> = {
+  0: 0,
+  1: 0.2,
+  2: 0.4,
+  3: 0.6,
+  4: 0.8,
+  5: 1.0
+} as const;
+
+export const HIGH_JUDGMENT_TYPES: JudgeResult[] = ['perfect', 'great'];
+
+export const RESONANCE_DECAY_RATE = 0.002;
+export const RESONANCE_MISS_PENALTY = 0.3;
