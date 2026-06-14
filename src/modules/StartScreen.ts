@@ -14,10 +14,12 @@ export class StartScreen {
   private app: PIXI.Application;
   private container: PIXI.Container;
   private onStartCallback?: (songId: string, difficulty: Difficulty, practiceConfig: PracticeConfig) => void;
+  private onPreloadCallback?: (songId: string, difficulty: Difficulty) => void;
 
   private songList: ChartData[] = songs;
   private selectedSongIndex: number = 0;
   private selectedDifficulty: Difficulty = 'normal';
+  private preloadDebounceTimer?: number;
   
   private practiceConfig: PracticeConfig = { ...DEFAULT_PRACTICE_CONFIG };
   
@@ -438,6 +440,7 @@ export class StartScreen {
     this.selectedDifficulty = difficulty;
     this.updateDifficultyButtons();
     this.updateSongInfo();
+    this.triggerPreload();
     if (this.leaderboardVisible) {
       this.updateLeaderboardContent();
     }
@@ -456,6 +459,7 @@ export class StartScreen {
   private prevSong(): void {
     this.selectedSongIndex = (this.selectedSongIndex - 1 + this.songList.length) % this.songList.length;
     this.updateSongInfo();
+    this.triggerPreload();
     if (this.leaderboardVisible) {
       this.updateLeaderboardContent();
     }
@@ -464,6 +468,7 @@ export class StartScreen {
   private nextSong(): void {
     this.selectedSongIndex = (this.selectedSongIndex + 1) % this.songList.length;
     this.updateSongInfo();
+    this.triggerPreload();
     if (this.leaderboardVisible) {
       this.updateLeaderboardContent();
     }
@@ -844,9 +849,28 @@ export class StartScreen {
     this.onStartCallback = callback;
   }
 
+  public setOnPreloadCallback(callback: (songId: string, difficulty: Difficulty) => void): void {
+    this.onPreloadCallback = callback;
+  }
+
+  private triggerPreload(): void {
+    if (!this.onPreloadCallback) return;
+    if (this.preloadDebounceTimer) {
+      clearTimeout(this.preloadDebounceTimer);
+    }
+    this.preloadDebounceTimer = window.setTimeout(() => {
+      const song = this.songList[this.selectedSongIndex];
+      if (song && this.onPreloadCallback) {
+        this.onPreloadCallback(song.id, this.selectedDifficulty);
+      }
+      this.preloadDebounceTimer = undefined;
+    }, 100);
+  }
+
   public show(): void {
     this.container.visible = true;
     this.updateSongInfo();
+    this.triggerPreload();
     if (this.leaderboardVisible) {
       this.updateLeaderboardContent();
     }

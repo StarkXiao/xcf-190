@@ -37,6 +37,14 @@ export class ResultScreen {
   private miniLeaderboardPanel: PIXI.Container;
   private miniLeaderboardVisible: boolean = false;
 
+  private animationComplete: boolean = false;
+  private animationCompleteTimer?: number;
+  private pendingAction?: 'restart' | 'back';
+  private isTransitioningOut: boolean = false;
+
+  private readonly TOTAL_ANIMATION_DURATION = 3200;
+  private readonly TRANSITION_OUT_DURATION = 400;
+
   constructor(app: PIXI.Application) {
     this.app = app;
     this.container = new PIXI.Container();
@@ -57,6 +65,14 @@ export class ResultScreen {
     isPractice: boolean = false,
     practiceSpeed: number = 1.0
   ): void {
+    this.animationComplete = false;
+    this.pendingAction = undefined;
+    this.isTransitioningOut = false;
+    if (this.animationCompleteTimer) {
+      clearTimeout(this.animationCompleteTimer);
+      this.animationCompleteTimer = undefined;
+    }
+
     this.container.visible = true;
     this.container.removeChildren();
     this.miniLeaderboardVisible = false;
@@ -83,6 +99,14 @@ export class ResultScreen {
     this.createBackToStartButton();
     this.container.addChild(this.miniLeaderboardPanel);
     this.animateIn();
+
+    this.animationCompleteTimer = window.setTimeout(() => {
+      this.animationComplete = true;
+      this.animationCompleteTimer = undefined;
+      if (this.pendingAction && !this.isTransitioningOut) {
+        this.executePendingAction();
+      }
+    }, this.TOTAL_ANIMATION_DURATION);
   }
 
   private createPracticeModeBadge(practiceSpeed: number): void {
@@ -906,6 +930,121 @@ export class ResultScreen {
     }, delay);
   }
 
+  private executePendingAction(): void {
+    if (!this.pendingAction) return;
+    const action = this.pendingAction;
+    this.pendingAction = undefined;
+
+    this.animateOutAndHide(() => {
+      if (action === 'restart' && this.onRestartCallback) {
+        this.onRestartCallback();
+      } else if (action === 'back' && this.onBackToStartCallback) {
+        this.onBackToStartCallback();
+      }
+    });
+  }
+
+  private requestAction(action: 'restart' | 'back'): void {
+    if (this.isTransitioningOut) return;
+
+    if (this.animationComplete) {
+      this.pendingAction = action;
+      this.executePendingAction();
+    } else {
+      this.pendingAction = action;
+      this.showActionWaitingIndicator(action);
+    }
+  }
+
+  private showActionWaitingIndicator(action: 'restart' | 'back'): void {
+    const indicator = new PIXI.Container();
+    indicator.x = this.app.screen.width / 2;
+    indicator.y = this.app.screen.height / 2 + 80;
+    indicator.name = 'waitingIndicator';
+
+    const bg = new PIXI.Graphics();
+    bg.beginFill(0x000000, 0.7);
+    bg.lineStyle(2, 0xffd700, 0.8);
+    bg.drawRoundedRect(-140, -20, 280, 40, 8);
+    bg.endFill();
+    indicator.addChild(bg);
+
+    const label = action === 'restart' ? '⏳ 等待动画播放完毕后重新开始...' : '⏳ 等待动画播放完毕后返回菜单...';
+    const style = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 13,
+      fontWeight: 'bold',
+      fill: 0xffd700,
+      stroke: 0x000000,
+      strokeThickness: 1,
+      align: 'center'
+    });
+    const text = new PIXI.Text(label, style);
+    text.anchor.set(0.5);
+    indicator.addChild(text);
+
+    const existing = this.container.getChildByName('waitingIndicator');
+    if (existing) {
+      this.container.removeChild(existing);
+      existing.destroy();
+    }
+
+    let dots = 0;
+    indicator.alpha = 0;
+    const startTime = Date.now();
+    const fadeIn = () => {
+      const elapsed = Date.now() - startTime;
+      indicator.alpha = Math.min(elapsed / 300, 1);
+      dots = (dots + 1) % 4;
+      text.text = label.replace('...', '.'.repeat(dots + 1));
+      if (elapsed < 300 || this.pendingAction === action) {
+        requestAnimationFrame(fadeIn);
+      }
+    };
+    this.container.addChild(indicator);
+    requestAnimationFrame(fadeIn);
+  }
+
+  private animateOutAndHide(onComplete: () => void): void {
+    if (this.isTransitioningOut) return;
+    this.isTransitioningOut = true;
+
+    const existing = this.container.getChildByName('waitingIndicator');
+    if (existing) {
+      this.container.removeChild(existing);
+      existing.destroy();
+    }
+
+    const startTime = Date.now();
+    const startAlpha = this.container.alpha;
+
+    const animate = () => {
+      const elapsed = Date.now() - startTime;
+      const progress = Math.min(elapsed / this.TRANSITION_OUT_DURATION, 1);
+      this.container.alpha = startAlpha * (1 - progress);
+      this.container.scale.set(1 + progress * 0.05);
+
+      if (progress < 1) {
+        requestAnimationFrame(animate);
+      } else {
+        this.container.scale.set(1);
+        this.doHide();
+        onComplete();
+      }
+    };
+
+    animate();
+  }
+
+  private doHide(): void {
+    this.container.visible = false;
+    this.container.alpha = 1;
+    this.container.removeChildren();
+    this.miniLeaderboardVisible = false;
+    this.miniLeaderboardPanel.removeChildren();
+    this.isTransitioningOut = false;
+  }
+
   private createRestartButton(): void {
     const buttonContainer = new PIXI.Container();
     buttonContainer.x = this.app.screen.width / 2 + 80;
@@ -920,10 +1059,7 @@ export class ResultScreen {
     buttonBg.cursor = 'pointer';
 
     buttonBg.on('pointerdown', () => {
-      this.hide();
-      if (this.onRestartCallback) {
-        this.onRestartCallback();
-      }
+      this.requestAction('restart');
     });
 
     buttonContainer.addChild(buttonBg);
@@ -960,10 +1096,7 @@ export class ResultScreen {
     buttonBg.cursor = 'pointer';
 
     buttonBg.on('pointerdown', () => {
-      this.hide();
-      if (this.onBackToStartCallback) {
-        this.onBackToStartCallback();
-      }
+      this.requestAction('back');
     });
 
     buttonContainer.addChild(buttonBg);
@@ -1014,13 +1147,20 @@ export class ResultScreen {
   }
 
   public hide(): void {
-    this.container.visible = false;
-    this.container.removeChildren();
-    this.miniLeaderboardVisible = false;
-    this.miniLeaderboardPanel.removeChildren();
+    if (this.animationCompleteTimer) {
+      clearTimeout(this.animationCompleteTimer);
+      this.animationCompleteTimer = undefined;
+    }
+    this.pendingAction = undefined;
+    this.doHide();
   }
 
   public destroy(): void {
+    if (this.animationCompleteTimer) {
+      clearTimeout(this.animationCompleteTimer);
+      this.animationCompleteTimer = undefined;
+    }
     this.container.destroy();
+    this.miniLeaderboardPanel.destroy();
   }
 }

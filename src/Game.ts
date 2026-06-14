@@ -9,13 +9,20 @@ import { LyricProgress } from './modules/LyricProgress';
 import { InputConfigManager } from './modules/InputConfigManager';
 import { BookResonance } from './modules/BookResonance';
 import { getSongById, getNotesForDifficulty } from './data/songs';
-import { ChartData, CharHitRecord, Difficulty, JudgeEvent, JudgeResult, LANE_COUNT, NoteData, NoteType, InputConfig, ResonanceState, PracticeConfig, DEFAULT_PRACTICE_CONFIG, BarInfo } from './types';
+import { ChartData, CharHitRecord, Difficulty, JudgeEvent, JudgeResult, LANE_COUNT, NoteData, NoteType, InputConfig, ResonanceState, PracticeConfig, DEFAULT_PRACTICE_CONFIG, BarInfo, PreloadedChart } from './types';
 
 interface NoteSprite {
   container: PIXI.Container;
   noteData: NoteData;
   noteId: number;
   noteType: NoteType;
+}
+
+interface PooledNoteSprite {
+  container: PIXI.Container;
+  inUse: boolean;
+  lastUsedNoteType?: NoteType;
+  lastUsedLane?: number;
 }
 
 type GameState = 'start' | 'playing' | 'paused' | 'result';
@@ -101,6 +108,11 @@ export class Game {
   private loopIndicators: PIXI.Graphics[] = [];
   private practiceModeIndicator?: PIXI.Container;
   private practiceSpeedDisplay?: PIXI.Text;
+
+  private preloadedCharts: Map<string, PreloadedChart> = new Map();
+  private noteSpritePool: PooledNoteSprite[] = [];
+  private readonly MAX_POOL_SIZE = 200;
+  private readonly PRELOAD_KEY = (songId: string, diff: Difficulty) => `${songId}_${diff}`;
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -1147,6 +1159,11 @@ export class Game {
       this.setPracticeConfig(config);
       this.startGame(songId, difficulty);
     });
+
+    this.startScreen.setOnPreloadCallback((songId: string, difficulty: Difficulty) => {
+      this.preloadChart(songId, difficulty);
+      this.preloadAdjacentCharts(songId, difficulty);
+    });
     
     this.resultScreen.setOnRestartCallback(() => {
       this.restartGame();
@@ -1226,18 +1243,17 @@ export class Game {
     
     this.noteSprites.forEach((sprite, id) => {
       if (!activeNoteIds.has(id)) {
-        this.noteLayer.removeChild(sprite.container);
-        sprite.container.destroy();
+        this.releaseNoteSprite(sprite);
         this.noteSprites.delete(id);
       }
     });
     
     activeNotes.forEach(note => {
       if (!this.noteSprites.has(note.id)) {
-        const noteContainer = this.effectRenderer.createPageNote(
-          note.lyricChar, 
-          note.lane, 
-          note.type, 
+        const noteContainer = this.acquireNoteSprite(
+          note.lyricChar,
+          note.lane,
+          note.type,
           note.duration,
           this.currentChart?.noteSpeed || 400
         );
@@ -1280,21 +1296,26 @@ export class Game {
   }
 
   private startGame(songId: string, difficulty: Difficulty): void {
-    const song = getSongById(songId);
-    if (!song) return;
+    let preloaded = this.preloadedCharts.get(this.PRELOAD_KEY(songId, difficulty));
     
-    const notes = getNotesForDifficulty(song, difficulty);
+    if (!preloaded) {
+      preloaded = this.preloadChart(songId, difficulty) || undefined;
+    }
+    
+    if (!preloaded) return;
+    
+    const { song, notes, noteSpeed, poemLines } = preloaded;
     const difficultyConfig = song.difficultyConfigs[difficulty];
     
     this.currentChart = {
       song,
       difficulty,
       notes,
-      noteSpeed: difficultyConfig.noteSpeed,
-      poemLines: song.poemLines
+      noteSpeed,
+      poemLines
     };
     
-    this.rhythmJudge.setConfig(difficultyConfig.noteSpeed, difficultyConfig.judgeTiming);
+    this.rhythmJudge.setConfig(noteSpeed, difficultyConfig.judgeTiming);
     this.rhythmJudge.setBPM(song.bpm);
     this.scoreSystem = new ScoreSystem(notes.length);
     
@@ -1305,7 +1326,7 @@ export class Game {
     this.resetGame();
     this.createSongInfoOverlay();
     
-    this.lyricProgress.initialize(notes, song.poemLines);
+    this.lyricProgress.initialize(notes, poemLines);
     this.lyricProgress.setVisible(true);
     
     this.rhythmJudge.setNotes(notes);
@@ -1356,8 +1377,7 @@ export class Game {
     this.lyricProgress.setVisible(false);
     
     this.noteSprites.forEach(sprite => {
-      this.noteLayer.removeChild(sprite.container);
-      sprite.container.destroy();
+      this.releaseNoteSprite(sprite);
     });
     this.noteSprites.clear();
     
@@ -1504,6 +1524,118 @@ export class Game {
     this.showStartScreen();
   }
 
+  public preloadChart(songId: string, difficulty: Difficulty): PreloadedChart | null {
+    const key = this.PRELOAD_KEY(songId, difficulty);
+    if (this.preloadedCharts.has(key)) {
+      return this.preloadedCharts.get(key)!;
+    }
+
+    const song = getSongById(songId);
+    if (!song) return null;
+
+    const notes = getNotesForDifficulty(song, difficulty);
+    const difficultyConfig = song.difficultyConfigs[difficulty];
+
+    const preloaded: PreloadedChart = {
+      song,
+      difficulty,
+      notes,
+      noteSpeed: difficultyConfig.noteSpeed,
+      poemLines: song.poemLines,
+      loadedAt: Date.now()
+    };
+
+    this.preloadedCharts.set(key, preloaded);
+
+    const staleThreshold = 5 * 60 * 1000;
+    const now = Date.now();
+    for (const [k, v] of this.preloadedCharts) {
+      if (now - v.loadedAt > staleThreshold) {
+        this.preloadedCharts.delete(k);
+      }
+    }
+
+    return preloaded;
+  }
+
+  public preloadAdjacentCharts(currentSongId: string, currentDifficulty: Difficulty): void {
+    const difficulties: Difficulty[] = ['easy', 'normal', 'hard'];
+    const currentDiffIdx = difficulties.indexOf(currentDifficulty);
+    
+    if (currentDiffIdx > 0) {
+      this.preloadChart(currentSongId, difficulties[currentDiffIdx - 1]);
+    }
+    if (currentDiffIdx < difficulties.length - 1) {
+      this.preloadChart(currentSongId, difficulties[currentDiffIdx + 1]);
+    }
+  }
+
+  public clearPreloadCache(): void {
+    this.preloadedCharts.clear();
+  }
+
+  private acquireNoteSprite(
+    lyricChar: string,
+    lane: number,
+    noteType: NoteType,
+    duration: number | undefined,
+    noteSpeed: number
+  ): PIXI.Container {
+    const reusable = this.noteSpritePool.find(
+      p => !p.inUse && p.lastUsedNoteType === noteType && p.lastUsedLane === lane
+    );
+
+    if (reusable) {
+      reusable.inUse = true;
+      reusable.container.visible = true;
+      reusable.container.alpha = 1;
+      return reusable.container;
+    }
+
+    const anyFree = this.noteSpritePool.find(p => !p.inUse);
+    if (anyFree) {
+      this.noteLayer.removeChild(anyFree.container);
+      anyFree.container.destroy();
+      this.noteSpritePool = this.noteSpritePool.filter(p => p !== anyFree);
+    }
+
+    const newContainer = this.effectRenderer.createPageNote(
+      lyricChar, lane, noteType, duration, noteSpeed
+    );
+
+    if (this.noteSpritePool.length < this.MAX_POOL_SIZE) {
+      this.noteSpritePool.push({
+        container: newContainer,
+        inUse: true,
+        lastUsedNoteType: noteType,
+        lastUsedLane: lane
+      });
+    }
+
+    return newContainer;
+  }
+
+  private releaseNoteSprite(sprite: NoteSprite): void {
+    const pooled = this.noteSpritePool.find(p => p.container === sprite.container);
+    if (pooled) {
+      pooled.inUse = false;
+      pooled.lastUsedNoteType = sprite.noteType;
+      pooled.lastUsedLane = sprite.noteData.lane;
+    }
+    this.noteLayer.removeChild(sprite.container);
+    sprite.container.visible = false;
+  }
+
+  private drainNoteSpritePool(): void {
+    this.noteSpritePool.forEach(p => {
+      if (p.container.parent) {
+        p.container.parent.removeChild(p.container);
+      }
+      p.container.destroy();
+    });
+    this.noteSpritePool = [];
+  }
+
   public destroy(): void {
     if (this.removeConfigListener) {
       this.removeConfigListener();
@@ -1511,6 +1643,8 @@ export class Game {
     if (this.removeResonanceListener) {
       this.removeResonanceListener();
     }
+    this.clearPreloadCache();
+    this.drainNoteSpritePool();
     this.effectRenderer.destroy();
     this.app.destroy(true);
   }

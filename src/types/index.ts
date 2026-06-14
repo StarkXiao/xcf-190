@@ -317,3 +317,12 @@ export interface BarInfo {
   endTime: number;
   noteCount: number;
 }
+
+export interface PreloadedChart {
+  song: ChartData;
+  difficulty: Difficulty;
+  notes: NoteData[];
+  noteSpeed: number;
+  poemLines: string[];
+  loadedAt: number;
+}
