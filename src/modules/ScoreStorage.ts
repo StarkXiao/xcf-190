@@ -5,11 +5,60 @@ const HISTORY_STORAGE_KEY = 'floating-island-bookstore-score-history';
 const MAX_HISTORY_ENTRIES = 100;
 
 export class ScoreStorage {
+  private static normalizeBestScore(raw: any): BestScore {
+    return {
+      score: raw.score ?? 0,
+      rating: raw.rating ?? 'D',
+      maxCombo: raw.maxCombo ?? 0,
+      perfect: raw.perfect ?? 0,
+      great: raw.great ?? 0,
+      good: raw.good ?? 0,
+      miss: raw.miss ?? 0,
+      accuracy: raw.accuracy ?? this.computeAccuracyFallback(raw)
+    };
+  }
+
+  private static computeAccuracyFallback(raw: any): number {
+    const perfect = raw.perfect ?? 0;
+    const great = raw.great ?? 0;
+    const good = raw.good ?? 0;
+    const miss = raw.miss ?? 0;
+    const total = perfect + great + good + miss;
+    if (total === 0) return 0;
+    return (perfect * 100 + great * 70 + good * 30) / total;
+  }
+
+  private static normalizeHistoryEntry(raw: any): ScoreHistoryEntry {
+    return {
+      score: raw.score ?? 0,
+      rating: raw.rating ?? 'D',
+      maxCombo: raw.maxCombo ?? 0,
+      perfect: raw.perfect ?? 0,
+      great: raw.great ?? 0,
+      good: raw.good ?? 0,
+      miss: raw.miss ?? 0,
+      accuracy: raw.accuracy ?? this.computeAccuracyFallback(raw),
+      timestamp: raw.timestamp ?? 0,
+      songId: raw.songId ?? '',
+      songTitle: raw.songTitle ?? '',
+      difficulty: raw.difficulty ?? 'normal'
+    };
+  }
+
   private static loadAllBest(): BestScoreRecord {
     try {
       const data = localStorage.getItem(BEST_STORAGE_KEY);
       if (data) {
-        return JSON.parse(data);
+        const raw = JSON.parse(data);
+        const normalized: BestScoreRecord = {};
+        for (const songId of Object.keys(raw)) {
+          normalized[songId] = {
+            easy: raw[songId].easy ? this.normalizeBestScore(raw[songId].easy) : null,
+            normal: raw[songId].normal ? this.normalizeBestScore(raw[songId].normal) : null,
+            hard: raw[songId].hard ? this.normalizeBestScore(raw[songId].hard) : null
+          };
+        }
+        return normalized;
       }
     } catch (e) {
       console.error('Failed to load best scores:', e);
@@ -29,7 +78,8 @@ export class ScoreStorage {
     try {
       const data = localStorage.getItem(HISTORY_STORAGE_KEY);
       if (data) {
-        return JSON.parse(data);
+        const raw: any[] = JSON.parse(data);
+        return raw.map(entry => this.normalizeHistoryEntry(entry));
       }
     } catch (e) {
       console.error('Failed to load score history:', e);
