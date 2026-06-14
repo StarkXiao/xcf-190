@@ -550,6 +550,10 @@ export class Game {
     this.resultScreen.setOnRestartCallback(() => {
       this.restartGame();
     });
+
+    this.resultScreen.setOnBackToStartCallback(() => {
+      this.backToStartScreen();
+    });
   }
 
   private processJudgeEvent(event: JudgeEvent): void {
@@ -777,14 +781,20 @@ export class Game {
     this.clearGameEndTimer();
     this.gameState = 'result';
     this.gameContainer.visible = false;
-    
+
     this.effectRenderer.clearHoldEffects();
     this.effectRenderer.clearSlideTrails();
-    
+
     const score = this.scoreSystem.getScore();
-    
+    const accuracy = this.scoreSystem.calculateAccuracy();
+
     let isNewRecord = false;
+    let previousBest = null;
     if (this.currentChart) {
+      previousBest = ScoreStorage.getBestScore(
+        this.currentChart.song.id,
+        this.currentChart.difficulty
+      );
       isNewRecord = ScoreStorage.isNewBestScore(
         this.currentChart.song.id,
         this.currentChart.difficulty,
@@ -793,10 +803,18 @@ export class Game {
       ScoreStorage.saveBestScore(
         this.currentChart.song.id,
         this.currentChart.difficulty,
-        score
+        score,
+        accuracy
+      );
+      ScoreStorage.addHistoryEntry(
+        this.currentChart.song.id,
+        this.currentChart.song.title,
+        this.currentChart.difficulty,
+        score,
+        accuracy
       );
     }
-    
+
     const poemLines = this.currentChart?.poemLines || [];
     this.resultScreen.show(
       score,
@@ -804,8 +822,15 @@ export class Game {
       this.charRecords,
       this.currentChart?.song.id,
       this.currentChart?.difficulty,
-      isNewRecord
+      isNewRecord,
+      previousBest,
+      accuracy
     );
+  }
+
+  private backToStartScreen(): void {
+    this.resetGame();
+    this.showStartScreen();
   }
 
   private restartGame(): void {

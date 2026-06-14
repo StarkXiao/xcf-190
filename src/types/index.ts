@@ -59,9 +59,26 @@ export interface BestScore {
   great: number;
   good: number;
   miss: number;
+  accuracy: number;
+}
+
+export interface ScoreHistoryEntry {
+  score: number;
+  rating: string;
+  maxCombo: number;
+  perfect: number;
+  great: number;
+  good: number;
+  miss: number;
+  accuracy: number;
+  timestamp: number;
+  songId: string;
+  songTitle: string;
+  difficulty: Difficulty;
 }
 
 export type BestScoreRecord = Record<string, Record<Difficulty, BestScore | null>>;
+export type ScoreHistory = ScoreHistoryEntry[];
 
 export type JudgeResult = 'perfect' | 'great' | 'good' | 'miss';
 
