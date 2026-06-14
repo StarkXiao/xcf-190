@@ -39,10 +39,18 @@ interface AtmosphereState {
 }
 
 interface ResonanceEffect {
+  baseContainer: PIXI.Container;
+  burstContainer: PIXI.Container;
   pages: PIXI.Sprite[];
   pageData: { angle: number; speed: number; rotationSpeed: number; baseY: number; amplitude: number; phase: number }[];
   glowRing: PIXI.Graphics;
   glowIntensity: number;
+}
+
+interface LayerState {
+  currentZBoost: number;
+  targetZBoost: number;
+  baseIndex: number;
 }
 
 const ATMOSPHERE_PRESETS = [
@@ -56,6 +64,8 @@ const ATMOSPHERE_PRESETS = [
 export class EffectRenderer {
   private app: PIXI.Application;
   private container: PIXI.Container;
+  private burstLayer: PIXI.Container;
+  private parentContainer: PIXI.Container | null = null;
   private particles: Particle[] = [];
   private judgeEffects: JudgeEffect[] = [];
   private holdEffects: HoldEffect[] = [];
@@ -73,11 +83,19 @@ export class EffectRenderer {
   private resonance: ResonanceEffect;
   private resonanceIntensity: number = 0;
   private targetResonanceIntensity: number = 0;
+  private layerState: LayerState = {
+    currentZBoost: 0,
+    targetZBoost: 0,
+    baseIndex: 0
+  };
 
   constructor(app: PIXI.Application) {
     this.app = app;
     this.container = new PIXI.Container();
     this.app.stage.addChild(this.container);
+    
+    this.burstLayer = new PIXI.Container();
+    this.app.stage.addChild(this.burstLayer);
     
     this.lyricContainer = new PIXI.Container();
     this.lyricContainer.x = this.app.screen.width / 2;
@@ -140,6 +158,9 @@ export class EffectRenderer {
   }
 
   private createResonanceEffect(): ResonanceEffect {
+    const baseContainer = new PIXI.Container();
+    const burstContainer = new PIXI.Container();
+
     const pages: PIXI.Sprite[] = [];
     const pageData: { angle: number; speed: number; rotationSpeed: number; baseY: number; amplitude: number; phase: number }[] = [];
 
@@ -175,12 +196,17 @@ export class EffectRenderer {
         amplitude: 30 + Math.random() * 50,
         phase: Math.random() * Math.PI * 2
       });
+
+      baseContainer.addChild(sprite);
     }
 
     const glowRing = new PIXI.Graphics();
     glowRing.alpha = 0;
+    baseContainer.addChildAt(glowRing, 0);
 
     return {
+      baseContainer,
+      burstContainer,
       pages,
       pageData,
       glowRing,
@@ -189,14 +215,16 @@ export class EffectRenderer {
   }
 
   public initResonanceEffect(parent: PIXI.Container): void {
-    parent.addChild(this.resonance.glowRing);
-    this.resonance.pages.forEach(p => {
-      parent.addChild(p);
-    });
+    this.parentContainer = parent;
+    const baseIndex = parent.children.length;
+    this.layerState.baseIndex = baseIndex;
+    parent.addChild(this.resonance.baseContainer);
+    this.app.stage.addChild(this.resonance.burstContainer);
   }
 
   public setResonanceIntensity(intensity: number): void {
     this.targetResonanceIntensity = Math.max(0, Math.min(1, intensity));
+    this.layerState.targetZBoost = this.targetResonanceIntensity > 0.4 ? 1 : 0;
   }
 
   public setAtmosphereLevel(lineIndex: number, _totalLines: number): void {
@@ -277,13 +305,72 @@ export class EffectRenderer {
     });
   }
 
+  private updateLayerZBoost(): void {
+    const ls = this.layerState;
+    ls.currentZBoost += (ls.targetZBoost - ls.currentZBoost) * 0.08;
+
+    const shouldBeBurst = ls.currentZBoost >= 0.5;
+    const isBurst = this.resonance.baseContainer.parent === this.burstLayer;
+
+    if (shouldBeBurst && !isBurst) {
+      this.promoteResonanceToBurst();
+    } else if (!shouldBeBurst && isBurst) {
+      this.demoteResonanceFromBurst();
+    }
+
+    this.burstLayer.alpha = Math.max(0, Math.min(1, ls.currentZBoost));
+    const baseLayerDim = 1 - Math.max(0, Math.min(1, ls.currentZBoost)) * 0.3;
+    this.resonance.baseContainer.alpha = baseLayerDim;
+  }
+
+  private promoteResonanceToBurst(): void {
+    if (!this.parentContainer) return;
+
+    if (this.resonance.baseContainer.parent === this.parentContainer) {
+      const idx = this.parentContainer.getChildIndex(this.resonance.baseContainer);
+      if (idx >= 0) this.parentContainer.removeChildAt(idx);
+    }
+
+    this.burstLayer.addChildAt(this.resonance.baseContainer, 0);
+
+    if (this.app.stage.getChildIndex(this.burstLayer) < 0) {
+      this.app.stage.addChild(this.burstLayer);
+    }
+    if (this.app.stage.getChildIndex(this.lyricContainer) < 0) {
+      this.app.stage.addChild(this.lyricContainer);
+    }
+  }
+
+  private demoteResonanceFromBurst(): void {
+    if (!this.parentContainer) return;
+
+    if (this.resonance.baseContainer.parent === this.burstLayer) {
+      const idx = this.burstLayer.getChildIndex(this.resonance.baseContainer);
+      if (idx >= 0) this.burstLayer.removeChildAt(idx);
+    }
+
+    const targetIndex = Math.min(this.layerState.baseIndex, this.parentContainer.children.length);
+    this.parentContainer.addChildAt(this.resonance.baseContainer, targetIndex);
+  }
+
   public resetResonance(): void {
     this.targetResonanceIntensity = 0;
     this.resonanceIntensity = 0;
+    this.layerState.targetZBoost = 0;
+    this.layerState.currentZBoost = 0;
     this.resonance.glowRing.clear();
     this.resonance.pages.forEach(p => {
       p.alpha = 0;
     });
+    this.burstLayer.alpha = 0;
+    this.resonance.baseContainer.alpha = 1;
+    if (this.resonance.baseContainer.parent === this.burstLayer) {
+      const idx = this.burstLayer.getChildIndex(this.resonance.baseContainer);
+      if (idx >= 0) this.burstLayer.removeChildAt(idx);
+    }
+    if (this.parentContainer && this.resonance.baseContainer.parent !== this.parentContainer) {
+      this.parentContainer.addChildAt(this.resonance.baseContainer, Math.min(this.layerState.baseIndex, this.parentContainer.children.length));
+    }
   }
 
   public createPageNote(text: string, lane: number, noteType: NoteType = 'tap', duration?: number, noteSpeed: number = 400): PIXI.Container {
@@ -493,7 +580,12 @@ export class EffectRenderer {
       const baseSpeed = noteType === 'tap' ? 2 + Math.random() * 4 : 3 + Math.random() * 5;
       const speed = baseSpeed * resonanceBoost;
       
-      this.container.addChild(sprite);
+      const useBurstLayer = this.layerState.currentZBoost > 0.3;
+      if (useBurstLayer) {
+        this.burstLayer.addChild(sprite);
+      } else {
+        this.container.addChild(sprite);
+      }
       this.particles.push({
         sprite,
         vx: Math.cos(angle) * speed,
@@ -542,7 +634,12 @@ export class EffectRenderer {
     text.x = x;
     text.y = y - 50;
     
-    this.container.addChild(text);
+    const useBurstLayer = this.layerState.currentZBoost > 0.3;
+    if (useBurstLayer) {
+      this.burstLayer.addChild(text);
+    } else {
+      this.container.addChild(text);
+    }
     this.judgeEffects.push({
       text,
       life: noteType === 'tap' ? 45 : 55,
@@ -624,6 +721,7 @@ export class EffectRenderer {
 
   public update(_deltaTime: number): void {
     this.updateAtmosphere();
+    this.updateLayerZBoost();
     this.updateResonance();
 
     this.particles = this.particles.filter(particle => {
@@ -857,11 +955,14 @@ export class EffectRenderer {
       p.destroy();
     });
     this.resonance.glowRing.destroy();
+    this.resonance.baseContainer.destroy();
+    this.resonance.burstContainer.destroy();
     
     this.clearHoldEffects();
     this.clearSlideTrails();
     this.clearLitCharacters();
     this.container.destroy();
+    this.burstLayer.destroy();
     this.lyricContainer.destroy();
   }
 }
