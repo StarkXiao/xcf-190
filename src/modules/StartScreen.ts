@@ -8,9 +8,10 @@ import {
   SongLibraryFilterType,
   SongLibrarySortType,
   CoverArt,
-  DEFAULT_COVER_ART_SIZE
+  DEFAULT_COVER_ART_SIZE,
+  SongChartEntry,
+  ChartDifficultyConfig
 } from '../types';
-import { songs, SongWithUnlock } from '../data/songs';
 import { ScoreStorage } from './ScoreStorage';
 import { InputConfigManager } from './InputConfigManager';
 import { ChapterUnlockManager } from './ChapterUnlockManager';
@@ -29,7 +30,9 @@ export class StartScreen {
   private onStartCallback?: (songId: string, difficulty: Difficulty, practiceConfig: PracticeConfig) => void;
   private onPreloadCallback?: (songId: string, difficulty: Difficulty) => void;
 
-  private songList: SongWithUnlock[] = songs;
+  private songLibrary: SongLibrary;
+  private coverArtManager: CoverArtManager;
+  private libraryEntries: SongLibraryEntry[] = [];
   private selectedSongIndex: number = 0;
   private selectedDifficulty: Difficulty = 'normal';
   private preloadDebounceTimer?: number;
@@ -62,9 +65,6 @@ export class StartScreen {
 
   private inputConfigManager: InputConfigManager;
 
-  private songLibrary: SongLibrary;
-  private coverArtManager: CoverArtManager;
-  private libraryEntries: SongLibraryEntry[] = [];
   private currentFilterType: SongLibraryFilterType = 'all';
   private currentSortType: SongLibrarySortType = 'default';
   private filterPanel: PIXI.Container;
@@ -123,6 +123,23 @@ export class StartScreen {
       { type: this.currentFilterType },
       { type: this.currentSortType, ascending: true }
     );
+    if (this.selectedSongIndex >= this.libraryEntries.length) {
+      this.selectedSongIndex = Math.max(0, this.libraryEntries.length - 1);
+    }
+  }
+
+  private getCurrentEntry(): SongLibraryEntry | undefined {
+    return this.libraryEntries[this.selectedSongIndex];
+  }
+
+  private getCurrentChart(): SongChartEntry | undefined {
+    return this.getCurrentEntry()?.chart;
+  }
+
+  private getCurrentDifficultyConfig(): ChartDifficultyConfig | undefined {
+    const chart = this.getCurrentChart();
+    if (!chart) return undefined;
+    return chart.difficultyConfigs[this.selectedDifficulty];
   }
 
   private setupLibraryListener(): void {
@@ -143,73 +160,51 @@ export class StartScreen {
   private updateCoverArtDisplay(): void {
     this.coverArtContainer.removeChildren();
 
-    const song = this.songList[this.selectedSongIndex];
-    if (!song) return;
+    const entry = this.getCurrentEntry();
+    if (!entry) return;
 
-    const libraryEntry = this.songLibrary.getLibraryEntry(song.id);
-    const coverArt = libraryEntry?.chart.metadata.coverArt;
-
+    const coverArt = entry.chart.metadata.coverArt;
     const coverWidth = Math.min(400, this.app.screen.width - 80);
     const coverHeight = (coverWidth / DEFAULT_COVER_ART_SIZE.width) * DEFAULT_COVER_ART_SIZE.height;
 
     if (coverArt) {
       this.renderCoverArt(coverArt, coverWidth, coverHeight);
     } else {
-      this.renderPlaceholderCover(coverWidth, coverHeight, song);
+      this.renderPlaceholderCover(coverWidth, coverHeight, entry.chart.metadata.title);
     }
   }
 
-  private renderCoverArt(coverArt: CoverArt, width: number, height: number): void {
-    const colors = this.coverArtManager.getCoverColors(coverArt);
+  private async renderCoverArt(coverArt: CoverArt, width: number, height: number): Promise<void> {
+    try {
+      const dataURL = this.coverArtManager.getDataURL(coverArt);
+      const cacheKey = `${coverArt.id}_${width}_${height}`;
 
-    const bg = new PIXI.Graphics();
-    bg.beginFill(parseInt(colors.secondary.replace('#', ''), 16));
-    bg.drawRoundedRect(-width / 2, 0, width, height, 16);
-    bg.endFill();
-    this.coverArtContainer.addChild(bg);
+      let texture = this.loadedCoverTextures.get(cacheKey);
+      if (!texture) {
+        texture = await PIXI.Texture.from(dataURL);
+        this.loadedCoverTextures.set(cacheKey, texture);
+      }
 
-    const accent = parseInt(colors.accent.replace('#', ''), 16);
-    const primary = parseInt(colors.primary.replace('#', ''), 16);
+      const sprite = new PIXI.Sprite(texture);
+      sprite.anchor.set(0.5, 0);
+      sprite.width = width;
+      sprite.height = height;
+      this.coverArtContainer.addChild(sprite);
 
-    const overlay = new PIXI.Graphics();
-    for (let i = 0; i < 20; i++) {
-      const x = (Math.random() - 0.5) * width;
-      const y = Math.random() * height;
-      const r = 2 + Math.random() * 6;
-      overlay.beginFill(0xffffff, 0.05 + Math.random() * 0.1);
-      overlay.drawCircle(x, y, r);
-      overlay.endFill();
+      const colors = this.coverArtManager.getCoverColors(coverArt);
+      const border = new PIXI.Graphics();
+      border.lineStyle(3, parseInt(colors.accent.replace('#', ''), 16), 0.6);
+      border.drawRoundedRect(-width / 2, 0, width, height, 16);
+      border.endFill();
+      this.coverArtContainer.addChild(border);
+    } catch (e) {
+      console.warn('Failed to render cover art, falling back to placeholder:', e);
+      const entry = this.getCurrentEntry();
+      this.renderPlaceholderCover(width, height, entry?.chart.metadata.title || '');
     }
-
-    for (let i = 0; i < 5; i++) {
-      const y1 = (height / 6) * (i + 1);
-      overlay.lineStyle(1, 0xffffff, 0.05);
-      overlay.moveTo(-width / 2, y1);
-      overlay.quadraticCurveTo(0, y1 - 20, width / 2, y1);
-    }
-    this.coverArtContainer.addChild(overlay);
-
-    const orbs = [
-      { x: -width * 0.3, y: height * 0.25, r: width * 0.12, color: primary, opacity: 0.2 },
-      { x: width * 0.3, y: height * 0.7, r: width * 0.15, color: accent, opacity: 0.15 },
-      { x: width * 0.25, y: height * 0.15, r: width * 0.08, color: primary, opacity: 0.25 }
-    ];
-    orbs.forEach(o => {
-      const orb = new PIXI.Graphics();
-      orb.beginFill(o.color, o.opacity);
-      orb.drawCircle(o.x, o.y, o.r);
-      orb.endFill();
-      this.coverArtContainer.addChild(orb);
-    });
-
-    const border = new PIXI.Graphics();
-    border.lineStyle(3, accent, 0.5);
-    border.drawRoundedRect(-width / 2, 0, width, height, 16);
-    border.endFill();
-    this.coverArtContainer.addChild(border);
   }
 
-  private renderPlaceholderCover(width: number, height: number, song: SongWithUnlock): void {
+  private renderPlaceholderCover(width: number, height: number, title: string): void {
     const bg = new PIXI.Graphics();
     bg.beginFill(0x1a1a3a);
     bg.drawRoundedRect(-width / 2, 0, width, height, 16);
@@ -225,7 +220,7 @@ export class StartScreen {
       align: 'center'
     });
 
-    const text = new PIXI.Text(song.title, textStyle);
+    const text = new PIXI.Text(title, textStyle);
     text.anchor.set(0.5);
     text.y = height / 2;
     bg.addChild(text);
@@ -581,10 +576,16 @@ export class StartScreen {
   private updateSongInfo(): void {
     this.songInfoContainer.removeChildren();
 
-    const song = this.songList[this.selectedSongIndex];
-    const difficultyConfig = song.difficultyConfigs[this.selectedDifficulty];
-    const bestScore = ScoreStorage.getBestScore(song.id, this.selectedDifficulty);
-    const unlockInfo = ChapterUnlockManager.getUnlockInfo(song.id);
+    const entry = this.getCurrentEntry();
+    if (!entry) return;
+
+    const chart = entry.chart;
+    const metadata = chart.metadata;
+    const difficultyConfig = this.getCurrentDifficultyConfig();
+    if (!difficultyConfig) return;
+
+    const bestScore = entry.bestScore;
+    const unlockInfo = ChapterUnlockManager.getUnlockInfo(metadata.id);
 
     const bgPanel = new PIXI.Graphics();
     const panelHeight = unlockInfo.isUnlocked ? 230 : 320;
@@ -609,7 +610,7 @@ export class StartScreen {
     });
 
     const title = new PIXI.Text(
-      unlockInfo.isUnlocked ? song.title : `🔒 ${song.title}`,
+      unlockInfo.isUnlocked ? metadata.title : `🔒 ${metadata.title}`,
       titleStyle
     );
     title.anchor.set(0.5);
@@ -623,7 +624,7 @@ export class StartScreen {
       align: 'center'
     });
 
-    const artist = new PIXI.Text(`艺术家: ${song.artist}`, artistStyle);
+    const artist = new PIXI.Text(`艺术家: ${metadata.artist}`, artistStyle);
     artist.anchor.set(0.5);
     artist.y = 58;
     this.songInfoContainer.addChild(artist);
@@ -635,7 +636,7 @@ export class StartScreen {
       align: 'left'
     });
 
-    const bpmText = new PIXI.Text(`♪ BPM: ${song.bpm}`, infoStyle);
+    const bpmText = new PIXI.Text(`♪ BPM: ${metadata.bpm}`, infoStyle);
     bpmText.anchor.set(0, 0.5);
     bpmText.x = -210;
     bpmText.y = 90;
@@ -648,8 +649,8 @@ export class StartScreen {
     starText.y = 114;
     this.songInfoContainer.addChild(starText);
 
-    const noteCount = (song.difficulties[this.selectedDifficulty] || song.difficulties.normal).length;
-    const noteText = new PIXI.Text(`音符数: ${noteCount}`, infoStyle);
+    const notes = this.songLibrary.getNotesForDifficulty(chart, this.selectedDifficulty);
+    const noteText = new PIXI.Text(`音符数: ${notes.length}`, infoStyle);
     noteText.anchor.set(0, 0.5);
     noteText.x = -210;
     noteText.y = 138;
@@ -667,7 +668,7 @@ export class StartScreen {
     diffLabelText.y = 114;
     this.songInfoContainer.addChild(diffLabelText);
 
-    const playCount = ScoreStorage.getScoreHistoryForDifficulty(song.id, this.selectedDifficulty).length;
+    const playCount = ScoreStorage.getScoreHistoryForDifficulty(metadata.id, this.selectedDifficulty).length;
     const playCountText = new PIXI.Text(`游玩次数: ${playCount}`, infoStyle);
     playCountText.anchor.set(0, 0.5);
     playCountText.x = 30;
@@ -740,7 +741,7 @@ export class StartScreen {
       this.songInfoContainer.addChild(noScoreText);
     }
 
-    if (!unlockInfo.isUnlocked && song.unlockCondition) {
+    if (!unlockInfo.isUnlocked && chart.unlockCondition) {
       const unlockY = bestScore ? bestScoreY + 75 : bestScoreY + 40;
 
       const unlockHeaderStyle = new PIXI.TextStyle({
@@ -764,12 +765,12 @@ export class StartScreen {
         wordWrapWidth: 440,
         lineHeight: 18
       });
-      const unlockDesc = new PIXI.Text(song.unlockCondition.description, unlockDescStyle);
+      const unlockDesc = new PIXI.Text(chart.unlockCondition.description, unlockDescStyle);
       unlockDesc.anchor.set(0.5);
       unlockDesc.y = unlockY + 22;
       this.songInfoContainer.addChild(unlockDesc);
 
-      const progressText = ChapterUnlockManager.getProgressText(song.unlockCondition, unlockInfo.progress);
+      const progressText = ChapterUnlockManager.getProgressText(chart.unlockCondition, unlockInfo.progress);
       const progressStyle = new PIXI.TextStyle({
         fontFamily: 'monospace',
         fontSize: 12,
@@ -832,7 +833,7 @@ export class StartScreen {
       align: 'center'
     });
 
-    const poemPreview = song.poemLines.slice(0, 1).join('  ');
+    const poemPreview = metadata.poemLines.slice(0, 1).join('  ');
     const poemText = new PIXI.Text(`「${poemPreview}...」`, poemLabelStyle);
     poemText.anchor.set(0.5);
     poemText.y = panelHeight - 8;
@@ -944,25 +945,10 @@ export class StartScreen {
     });
   }
 
-  private getCurrentSongList(): SongWithUnlock[] {
-    if (this.libraryEntries.length > 0) {
-      const ids = new Set(this.libraryEntries.map(e => e.chart.metadata.id));
-      return this.songList.filter(s => ids.has(s.id));
-    }
-    return this.songList;
-  }
-
   private prevSong(): void {
-    const list = this.getCurrentSongList();
-    const total = list.length;
+    const total = this.libraryEntries.length;
     if (total === 0) return;
-    const currentSongId = this.songList[this.selectedSongIndex]?.id;
-    let currentIdx = list.findIndex(s => s.id === currentSongId);
-    if (currentIdx < 0) currentIdx = 0;
-    const newIdx = (currentIdx - 1 + total) % total;
-    const newSongId = list[newIdx].id;
-    this.selectedSongIndex = this.songList.findIndex(s => s.id === newSongId);
-    if (this.selectedSongIndex < 0) this.selectedSongIndex = 0;
+    this.selectedSongIndex = (this.selectedSongIndex - 1 + total) % total;
     this.updateSongInfo();
     this.updateCoverArtDisplay();
     this.updateStartButtonState();
@@ -973,16 +959,9 @@ export class StartScreen {
   }
 
   private nextSong(): void {
-    const list = this.getCurrentSongList();
-    const total = list.length;
+    const total = this.libraryEntries.length;
     if (total === 0) return;
-    const currentSongId = this.songList[this.selectedSongIndex]?.id;
-    let currentIdx = list.findIndex(s => s.id === currentSongId);
-    if (currentIdx < 0) currentIdx = 0;
-    const newIdx = (currentIdx + 1) % total;
-    const newSongId = list[newIdx].id;
-    this.selectedSongIndex = this.songList.findIndex(s => s.id === newSongId);
-    if (this.selectedSongIndex < 0) this.selectedSongIndex = 0;
+    this.selectedSongIndex = (this.selectedSongIndex + 1) % total;
     this.updateSongInfo();
     this.updateCoverArtDisplay();
     this.updateStartButtonState();
@@ -1035,8 +1014,9 @@ export class StartScreen {
   private updateStartButtonState(): void {
     if (!this.startButtonBg || !this.startButtonText) return;
 
-    const song = this.songList[this.selectedSongIndex];
-    const unlockInfo = ChapterUnlockManager.getUnlockInfo(song.id);
+    const chart = this.getCurrentChart();
+    if (!chart) return;
+    const unlockInfo = ChapterUnlockManager.getUnlockInfo(chart.metadata.id);
     const isUnlocked = unlockInfo.isUnlocked;
 
     this.startButtonBg.clear();
@@ -1202,7 +1182,8 @@ export class StartScreen {
   private updateLeaderboardContent(): void {
     this.leaderboardContent.removeChildren();
 
-    const song = this.songList[this.selectedSongIndex];
+    const chart = this.getCurrentChart();
+    if (!chart) return;
     const panelWidth = Math.min(640, this.app.screen.width - 40);
     const panelX = (this.app.screen.width - panelWidth) / 2;
     const contentWidth = panelWidth - 60;
@@ -1223,7 +1204,7 @@ export class StartScreen {
       align: 'left'
     });
 
-    const songLabel = new PIXI.Text(`${song.title} - ${DIFFICULTY_LABELS[this.selectedDifficulty]}`, songLabelStyle);
+    const songLabel = new PIXI.Text(`${chart.metadata.title} - ${DIFFICULTY_LABELS[this.selectedDifficulty]}`, songLabelStyle);
     songLabel.anchor.set(0, 0);
     songLabel.x = startX;
     songLabel.y = 10;
@@ -1246,7 +1227,7 @@ export class StartScreen {
     divider.lineTo(startX + contentWidth, 62);
     this.leaderboardContent.addChild(divider);
 
-    const topScores = ScoreStorage.getTopScores(song.id, this.selectedDifficulty, 15);
+    const topScores = ScoreStorage.getTopScores(chart.metadata.id, this.selectedDifficulty, 15);
 
     if (topScores.length === 0) {
       const emptyStyle = new PIXI.TextStyle({
@@ -1388,10 +1369,9 @@ export class StartScreen {
   }
 
   private startGame(): void {
-    if (this.onStartCallback) {
-      const song = this.songList[this.selectedSongIndex];
-      this.onStartCallback(song.id, this.selectedDifficulty, { ...this.practiceConfig });
-    }
+    const chart = this.getCurrentChart();
+    if (!chart || !this.onStartCallback) return;
+    this.onStartCallback(chart.metadata.id, this.selectedDifficulty, { ...this.practiceConfig });
   }
 
   public setOnStartCallback(callback: (songId: string, difficulty: Difficulty, practiceConfig: PracticeConfig) => void): void {
@@ -1408,9 +1388,9 @@ export class StartScreen {
       clearTimeout(this.preloadDebounceTimer);
     }
     this.preloadDebounceTimer = window.setTimeout(() => {
-      const song = this.songList[this.selectedSongIndex];
-      if (song && this.onPreloadCallback) {
-        this.onPreloadCallback(song.id, this.selectedDifficulty);
+      const chart = this.getCurrentChart();
+      if (chart && this.onPreloadCallback) {
+        this.onPreloadCallback(chart.metadata.id, this.selectedDifficulty);
       }
       this.preloadDebounceTimer = undefined;
     }, 100);

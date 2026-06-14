@@ -10,7 +10,7 @@ import { InputConfigManager } from './modules/InputConfigManager';
 import { BookResonance } from './modules/BookResonance';
 import { ChapterUnlockManager } from './modules/ChapterUnlockManager';
 import { SongLibrary } from './modules/SongLibrary';
-import { getSongById, getNotesForDifficulty, songs, SongWithUnlock } from './data/songs';
+import { getSongById, SongWithUnlock } from './data/songs';
 import { ChartData, CharHitRecord, Difficulty, JudgeEvent, JudgeResult, LANE_COUNT, NoteData, NoteType, InputConfig, ResonanceState, PracticeConfig, DEFAULT_PRACTICE_CONFIG, BarInfo, PreloadedChart } from './types';
 
 interface NoteSprite {
@@ -102,6 +102,7 @@ export class Game {
   private activeTouches: Map<number, TouchInfo> = new Map();
   
   private inputConfigManager: InputConfigManager;
+  private songLibrary: SongLibrary;
   private removeConfigListener?: () => void;
 
   private practiceConfig: PracticeConfig = { ...DEFAULT_PRACTICE_CONFIG };
@@ -120,6 +121,7 @@ export class Game {
     this.container = container;
     
     this.inputConfigManager = InputConfigManager.getInstance();
+    this.songLibrary = SongLibrary.getInstance();
     this.keyMap = this.inputConfigManager.getKeyMap();
     this.swipeThreshold = this.inputConfigManager.getSwipeThreshold();
     this.holdThreshold = this.inputConfigManager.getHoldThreshold();
@@ -139,20 +141,24 @@ export class Game {
     
     this.container.appendChild(this.app.view as HTMLCanvasElement);
     
+    const defaultChart = this.songLibrary.getSong('love-poem');
     const defaultSong = getSongById('love-poem')!;
-    const defaultNotes = getNotesForDifficulty(defaultSong, 'normal');
+    const defaultNotes = this.songLibrary.getNotes('love-poem', 'normal');
+    const defaultDifficultyConfig = defaultChart
+      ? defaultChart.difficultyConfigs.normal
+      : defaultSong.difficultyConfigs.normal;
     this.currentChart = {
       song: defaultSong,
       difficulty: 'normal',
       notes: defaultNotes,
-      noteSpeed: defaultSong.difficultyConfigs.normal.noteSpeed,
-      poemLines: defaultSong.poemLines
+      noteSpeed: defaultDifficultyConfig.noteSpeed,
+      poemLines: defaultChart?.metadata.poemLines || defaultSong.poemLines
     };
     
     this.rhythmJudge = new RhythmJudge(
-      defaultSong.difficultyConfigs.normal.noteSpeed,
+      defaultDifficultyConfig.noteSpeed,
       this.judgeLineY,
-      defaultSong.difficultyConfigs.normal.judgeTiming
+      defaultDifficultyConfig.judgeTiming
     );
     this.scoreSystem = new ScoreSystem(defaultNotes.length);
     this.bookResonance = new BookResonance();
@@ -229,7 +235,13 @@ export class Game {
     
     this.songInfoDisplay = new PIXI.Container();
     
-    const infoText = `${this.currentChart.song.title}  |  BPM: ${this.currentChart.song.bpm}  |  ${this.currentChart.song.difficultyConfigs[this.currentChart.difficulty].label}`;
+    const chart = this.songLibrary.getSong(this.currentChart.song.id);
+    const title = chart?.metadata.title || this.currentChart.song.title;
+    const bpm = chart?.metadata.bpm || this.currentChart.song.bpm;
+    const diffLabel = chart 
+      ? this.songLibrary.getDifficultyConfig(chart, this.currentChart.difficulty).label
+      : this.currentChart.song.difficultyConfigs[this.currentChart.difficulty].label;
+    const infoText = `${title}  |  BPM: ${bpm}  |  ${diffLabel}`;
     const style = new PIXI.TextStyle({
       fontFamily: 'sans-serif',
       fontSize: 16,
@@ -1315,8 +1327,11 @@ export class Game {
     
     if (!preloaded) return;
     
+    const chart = this.songLibrary.getSong(songId);
+    if (!chart) return;
+    
     const { song, notes, noteSpeed, poemLines } = preloaded;
-    const difficultyConfig = song.difficultyConfigs[difficulty];
+    const difficultyConfig = this.songLibrary.getDifficultyConfig(chart, difficulty);
     
     this.currentChart = {
       song,
@@ -1327,14 +1342,14 @@ export class Game {
     };
     
     this.rhythmJudge.setConfig(noteSpeed, difficultyConfig.judgeTiming);
-    this.rhythmJudge.setBPM(song.bpm);
+    this.rhythmJudge.setBPM(chart.metadata.bpm);
     this.scoreSystem = new ScoreSystem(notes.length);
     
     this.gameState = 'playing';
     this.startScreen.hide();
     this.gameContainer.visible = true;
 
-    SongLibrary.getInstance().markAsPlayed(songId);
+    this.songLibrary.markAsPlayed(songId);
     
     this.resetGame();
     this.createSongInfoOverlay();
@@ -1618,18 +1633,19 @@ export class Game {
       return existing;
     }
 
-    const song = getSongById(songId);
-    if (!song) return null;
+    const chart = this.songLibrary.getSong(songId);
+    const legacySong = getSongById(songId);
+    if (!chart || !legacySong) return null;
 
-    const notes = getNotesForDifficulty(song, difficulty);
-    const difficultyConfig = song.difficultyConfigs[difficulty];
+    const notes = this.songLibrary.getNotesForDifficulty(chart, difficulty);
+    const difficultyConfig = chart.difficultyConfigs[difficulty];
 
     const preloaded: PreloadedChart = {
-      song,
+      song: legacySong,
       difficulty,
       notes,
       noteSpeed: difficultyConfig.noteSpeed,
-      poemLines: song.poemLines,
+      poemLines: chart.metadata.poemLines,
       loadedAt: Date.now()
     };
 
@@ -1658,19 +1674,25 @@ export class Game {
   public preloadAdjacentCharts(currentSongId: string, currentDifficulty: Difficulty): void {
     const difficulties: Difficulty[] = ['easy', 'normal', 'hard'];
     const currentDiffIdx = difficulties.indexOf(currentDifficulty);
+    const currentChart = this.songLibrary.getSong(currentSongId);
     
-    if (currentDiffIdx > 0) {
+    if (!currentChart) return;
+    
+    const availableDiffs = this.songLibrary.getAvailableDifficulties(currentChart);
+    
+    if (currentDiffIdx > 0 && availableDiffs.includes(difficulties[currentDiffIdx - 1])) {
       this.preloadChart(currentSongId, difficulties[currentDiffIdx - 1]);
     }
-    if (currentDiffIdx < difficulties.length - 1) {
+    if (currentDiffIdx < difficulties.length - 1 && availableDiffs.includes(difficulties[currentDiffIdx + 1])) {
       this.preloadChart(currentSongId, difficulties[currentDiffIdx + 1]);
     }
   }
 
   public preloadAdjacentSongs(currentSongId: string, currentDifficulty: Difficulty): void {
-    const currentIdx = songs.findIndex(s => s.id === currentSongId);
+    const activeSongs = this.songLibrary.getActiveSongs();
+    const currentIdx = activeSongs.findIndex(s => s.metadata.id === currentSongId);
     if (currentIdx < 0) return;
-    const count = songs.length;
+    const count = activeSongs.length;
     const difficulties: Difficulty[] = ['easy', 'normal', 'hard'];
     const diffIdx = difficulties.indexOf(currentDifficulty);
     
@@ -1679,12 +1701,12 @@ export class Game {
     if (count > 2) neighbors.push((currentIdx - 1 + count) % count);
 
     neighbors.forEach((idx, depth) => {
-      const song = songs[idx];
-      if (!song) return;
+      const chart = activeSongs[idx];
+      if (!chart) return;
       setTimeout(() => {
-        this.preloadChart(song.id, currentDifficulty);
-        if (diffIdx > 0) this.preloadChart(song.id, difficulties[diffIdx - 1]);
-        if (diffIdx < difficulties.length - 1) this.preloadChart(song.id, difficulties[diffIdx + 1]);
+        this.preloadChart(chart.metadata.id, currentDifficulty);
+        if (diffIdx > 0) this.preloadChart(chart.metadata.id, difficulties[diffIdx - 1]);
+        if (diffIdx < difficulties.length - 1) this.preloadChart(chart.metadata.id, difficulties[diffIdx + 1]);
       }, depth * 150 + 100);
     });
   }
