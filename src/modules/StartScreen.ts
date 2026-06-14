@@ -1288,7 +1288,7 @@ export class StartScreen {
       align: 'left',
       lineHeight: 18
     });
-    const hint = new PIXI.Text('配置在移动设备上的触控手势操作。点击轨道触发对应按键，滑动用于滑键音符。', hintStyle);
+    const hint = new PIXI.Text('配置在移动设备上的触控手势操作。点击右侧开关可启用/禁用对应手势。', hintStyle);
     hint.anchor.set(0, 0);
     hint.x = startX;
     hint.y = sectionY + 30;
@@ -1308,8 +1308,8 @@ export class StartScreen {
       const y = itemY + index * (itemHeight + 10);
 
       const itemBg = new PIXI.Graphics();
-      itemBg.beginFill(0x1a1a3a, 0.6);
-      itemBg.lineStyle(1, 0x3498db, 0.3);
+      itemBg.beginFill(gesture.enabled ? 0x1a1a3a : 0x1a1a1a, gesture.enabled ? 0.6 : 0.3);
+      itemBg.lineStyle(1, gesture.enabled ? 0x3498db : 0x444444, gesture.enabled ? 0.3 : 0.2);
       itemBg.drawRoundedRect(startX, y, contentWidth, itemHeight, 8);
       itemBg.endFill();
       this.settingsContent.addChild(itemBg);
@@ -1323,12 +1323,13 @@ export class StartScreen {
       icon.anchor.set(0, 0.5);
       icon.x = startX + 15;
       icon.y = y + itemHeight / 2;
+      icon.alpha = gesture.enabled ? 1 : 0.4;
       this.settingsContent.addChild(icon);
 
       const labelStyle = new PIXI.TextStyle({
         fontFamily: 'sans-serif',
         fontSize: 16,
-        fill: 0xffffff,
+        fill: gesture.enabled ? 0xffffff : 0x666666,
         align: 'left'
       });
       let labelText = gesture.label;
@@ -1345,17 +1346,29 @@ export class StartScreen {
       label.y = y + itemHeight / 2;
       this.settingsContent.addChild(label);
 
-      const statusStyle = new PIXI.TextStyle({
-        fontFamily: 'sans-serif',
-        fontSize: 12,
-        fill: 0x2ecc71,
-        align: 'right'
-      });
-      const status = new PIXI.Text('已启用', statusStyle);
-      status.anchor.set(1, 0.5);
-      status.x = startX + contentWidth - 15;
-      status.y = y + itemHeight / 2;
-      this.settingsContent.addChild(status);
+      const toggleBtn = this.createToggleSwitch(
+        gesture.enabled,
+        startX + contentWidth - 70,
+        y + 10,
+        60,
+        30,
+        () => {
+          const result = this.inputConfigManager.toggleGestureEnabled(
+            gesture.gesture,
+            gesture.lane,
+            gesture.direction
+          );
+          if (result.valid) {
+            if (result.warnings.length > 0) {
+              this.showStatus(result.warnings[0], 0xffaa00);
+            }
+            this.updateSettingsContent();
+          } else {
+            this.showStatus(result.errors[0], 0xe74c3c);
+          }
+        }
+      );
+      this.settingsContent.addChild(toggleBtn);
     });
 
     const gestureInfoY = itemY + gestures.length * (itemHeight + 10) + 20;
@@ -1367,13 +1380,39 @@ export class StartScreen {
       lineHeight: 20
     });
     const info = new PIXI.Text(
-      '💡 提示：\n• 点击轨道区域：触发普通音符 (Tap)\n• 按住轨道不放：触发长按音符 (Hold)\n• 在轨道间滑动：触发滑键音符 (Slide)',
+      '💡 提示：\n• 点击轨道区域：触发普通音符 (Tap)\n• 按住轨道不放：触发长按音符 (Hold)\n• 在轨道间滑动：触发滑键音符 (Slide)\n• 设置修改后立即生效，无需重启游戏',
       infoStyle
     );
     info.anchor.set(0, 0);
     info.x = startX;
     info.y = gestureInfoY;
     this.settingsContent.addChild(info);
+  }
+
+  private createToggleSwitch(enabled: boolean, x: number, y: number, width: number, height: number, onToggle: () => void): PIXI.Graphics {
+    const btn = new PIXI.Graphics();
+    btn.x = x;
+    btn.y = y;
+
+    const bgColor = enabled ? 0x2ecc71 : 0x555555;
+    const knobX = enabled ? width - height + 4 : 4;
+
+    btn.beginFill(bgColor, 0.9);
+    btn.drawRoundedRect(0, 0, width, height, height / 2);
+    btn.endFill();
+
+    btn.beginFill(0xffffff, 1);
+    btn.drawCircle(knobX + (height - 8) / 2, height / 2, (height - 8) / 2);
+    btn.endFill();
+
+    btn.interactive = true;
+    btn.cursor = 'pointer';
+    btn.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
+      e.stopPropagation();
+      onToggle();
+    });
+
+    return btn;
   }
 
   private createAdvancedSettings(startX: number, contentWidth: number): void {

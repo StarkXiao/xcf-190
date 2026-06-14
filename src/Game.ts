@@ -219,6 +219,13 @@ export class Game {
       
       area.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
         if (this.gameState === 'playing') {
+          const tapEnabled = this.isGestureEnabled('tap', i);
+          const holdEnabled = this.isGestureEnabled('hold');
+          
+          if (!tapEnabled && !holdEnabled) {
+            return;
+          }
+          
           const now = performance.now();
           const touchInfo: TouchInfo = {
             pointerId: e.pointerId,
@@ -233,7 +240,7 @@ export class Game {
             inputTriggered: false
           };
           
-          if (this.isGestureEnabled('hold')) {
+          if (holdEnabled) {
             touchInfo.holdTimer = window.setTimeout(() => {
               if (!touchInfo.isGestureDetermined && this.activeTouches.has(e.pointerId)) {
                 touchInfo.gestureType = 'hold';
@@ -258,7 +265,10 @@ export class Game {
         const absDeltaX = Math.abs(deltaX);
         
         if (!touch.isGestureDetermined) {
-          if (absDeltaX >= this.swipeThreshold && this.isGestureEnabled('swipe')) {
+          const direction = deltaX > 0 ? 'right' : 'left';
+          const swipeDirectionEnabled = this.isGestureEnabled('swipe', touch.startLane, direction);
+          
+          if (absDeltaX >= this.swipeThreshold && swipeDirectionEnabled) {
             touch.isGestureDetermined = true;
             touch.gestureType = 'swipe';
             
@@ -267,19 +277,16 @@ export class Game {
               touch.holdTimer = undefined;
             }
             
-            const direction = deltaX > 0 ? 'right' : 'left';
-            if (this.isGestureEnabled('swipe', direction)) {
-              const slideNote = this.rhythmJudge.getActiveNotes().find(n => 
-                n.type === 'slide' && 
-                n.lane === touch.startLane &&
-                n.slideStartTime === undefined &&
-                !n.isJudged
-              );
-              
-              if (slideNote) {
-                touch.inputTriggered = true;
-                this.handleInput(touch.startLane, true);
-              }
+            const slideNote = this.rhythmJudge.getActiveNotes().find(n => 
+              n.type === 'slide' && 
+              n.lane === touch.startLane &&
+              n.slideStartTime === undefined &&
+              !n.isJudged
+            );
+            
+            if (slideNote) {
+              touch.inputTriggered = true;
+              this.handleInput(touch.startLane, true);
             }
           }
         }
@@ -326,7 +333,8 @@ export class Game {
       touch.holdTimer = undefined;
     }
     
-    if (!touch.isGestureDetermined && this.isGestureEnabled('tap')) {
+    const tapEnabled = this.isGestureEnabled('tap', touch.currentLane);
+    if (!touch.isGestureDetermined && tapEnabled) {
       touch.gestureType = 'tap';
       touch.isGestureDetermined = true;
       touch.inputTriggered = true;
@@ -415,23 +423,31 @@ export class Game {
   }
 
   private updateGestureEnabled(): void {
-    const gestures = this.inputConfigManager.getGestures();
     this.gestureEnabled = {};
+    const gestures = this.inputConfigManager.getGestures();
     gestures.forEach(g => {
       let key = g.gesture;
+      if (g.lane >= 0) {
+        key += '_lane' + g.lane;
+      }
       if (g.direction) {
         key += '_' + g.direction;
       }
-      this.gestureEnabled[key] = true;
+      this.gestureEnabled[key] = g.enabled;
     });
   }
 
-  private isGestureEnabled(gesture: string, direction?: string): boolean {
-    let key = gesture;
-    if (direction) {
-      key += '_' + direction;
+  private isGestureEnabled(gesture: string, lane?: number, direction?: string): boolean {
+    if (gesture === 'tap' && lane !== undefined && lane >= 0) {
+      return this.inputConfigManager.isTapEnabledForLane(lane);
     }
-    return this.gestureEnabled[key] !== false;
+    if (gesture === 'swipe' && direction) {
+      return this.inputConfigManager.isSwipeEnabled(direction as any);
+    }
+    if (gesture === 'hold') {
+      return this.inputConfigManager.isHoldEnabled();
+    }
+    return this.inputConfigManager.isGestureEnabled(gesture as any, lane, direction as any);
   }
 
   private createPauseButton(): void {

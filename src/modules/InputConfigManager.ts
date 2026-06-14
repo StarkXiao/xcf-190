@@ -6,12 +6,25 @@ import {
   RESERVED_KEYS,
   ValidationResult,
   LANE_COUNT,
-  GestureConfig
+  GestureConfig,
+  GestureType,
+  SwipeDirection
 } from '../types';
 
 type ConfigChangeListener = (config: InputConfig) => void;
 
 const STORAGE_KEY = 'floating-island-bookstore-input-config';
+
+export const getGestureKey = (gesture: GestureType, lane?: number, direction?: SwipeDirection): string => {
+  let key = gesture;
+  if (lane !== undefined && lane >= 0) {
+    key += '_lane' + lane;
+  }
+  if (direction) {
+    key += '_' + direction;
+  }
+  return key;
+};
 
 export class InputConfigManager {
   private static instance: InputConfigManager;
@@ -43,9 +56,27 @@ export class InputConfigManager {
   }
 
   private mergeWithDefaults(stored: Partial<InputConfig>): InputConfig {
+    let gestures: GestureConfig[];
+    if (stored.gestures) {
+      gestures = stored.gestures.map((g: any) => ({
+        ...g,
+        enabled: g.enabled !== undefined ? g.enabled : true
+      }));
+      const defaultMap = new Map(DEFAULT_GESTURES.map(dg => [getGestureKey(dg.gesture, dg.lane, dg.direction), dg]));
+      gestures.forEach(g => {
+        const key = getGestureKey(g.gesture, g.lane, g.direction);
+        if (!defaultMap.has(key)) {
+          defaultMap.set(key, g);
+        }
+      });
+      gestures = Array.from(defaultMap.values());
+    } else {
+      gestures = [...DEFAULT_GESTURES];
+    }
+
     return {
       keyMap: stored.keyMap ? { ...stored.keyMap } : { ...DEFAULT_KEY_MAP },
-      gestures: stored.gestures ? [...stored.gestures] : [...DEFAULT_GESTURES],
+      gestures,
       swipeThreshold: stored.swipeThreshold ?? DEFAULT_INPUT_CONFIG.swipeThreshold,
       holdThreshold: stored.holdThreshold ?? DEFAULT_INPUT_CONFIG.holdThreshold
     };
@@ -117,6 +148,85 @@ export class InputConfigManager {
   public getKeyDisplayForLane(lane: number): string {
     const keys = this.getKeysForLane(lane);
     return keys.length > 0 ? keys[0] : '?';
+  }
+
+  public isGestureEnabled(gesture: GestureType, lane?: number, direction?: SwipeDirection): boolean {
+    const config = this.config.gestures.find(g => {
+      if (g.gesture !== gesture) return false;
+      if (lane !== undefined && g.lane !== -1 && g.lane !== lane) return false;
+      if (direction && g.direction !== direction) return false;
+      if (lane === undefined && g.lane !== -1) return false;
+      return true;
+    });
+    return config?.enabled ?? false;
+  }
+
+  public isTapEnabledForLane(lane: number): boolean {
+    const config = this.config.gestures.find(g => g.gesture === 'tap' && g.lane === lane);
+    return config?.enabled ?? false;
+  }
+
+  public isSwipeEnabled(direction: SwipeDirection): boolean {
+    const config = this.config.gestures.find(g => g.gesture === 'swipe' && g.direction === direction);
+    return config?.enabled ?? false;
+  }
+
+  public isHoldEnabled(): boolean {
+    const config = this.config.gestures.find(g => g.gesture === 'hold' && g.lane === -1);
+    return config?.enabled ?? false;
+  }
+
+  public setGestureEnabled(gesture: GestureType, lane: number, direction: SwipeDirection | undefined, enabled: boolean): ValidationResult {
+    const errors: string[] = [];
+    const warnings: string[] = [];
+
+    const configIndex = this.config.gestures.findIndex(g => {
+      if (g.gesture !== gesture) return false;
+      if (g.lane !== lane) return false;
+      if (direction && g.direction !== direction) return false;
+      if (!direction && g.direction) return false;
+      return true;
+    });
+
+    if (configIndex === -1) {
+      errors.push(`未找到手势配置: ${gesture} 轨道${lane >= 0 ? lane : '全局'}${direction ? ' ' + direction : ''}`);
+      return { valid: false, errors, warnings };
+    }
+
+    if (gesture === 'tap' && !enabled) {
+      const otherTapEnabled = this.config.gestures.some((g, i) => 
+        i !== configIndex && g.gesture === 'tap' && g.enabled
+      );
+      if (!otherTapEnabled) {
+        warnings.push('禁用所有点击手势可能导致游戏无法进行');
+      }
+    }
+
+    this.config.gestures[configIndex].enabled = enabled;
+    this.saveToStorage();
+    this.notifyListeners();
+
+    return { valid: true, errors, warnings };
+  }
+
+  public toggleGestureEnabled(gesture: GestureType, lane: number, direction?: SwipeDirection): ValidationResult {
+    const currentConfig = this.config.gestures.find(g => {
+      if (g.gesture !== gesture) return false;
+      if (g.lane !== lane) return false;
+      if (direction && g.direction !== direction) return false;
+      if (!direction && g.direction) return false;
+      return true;
+    });
+
+    if (!currentConfig) {
+      return {
+        valid: false,
+        errors: [`未找到手势配置: ${gesture} 轨道${lane >= 0 ? lane : '全局'}${direction ? ' ' + direction : ''}`],
+        warnings: []
+      };
+    }
+
+    return this.setGestureEnabled(gesture, lane, direction, !currentConfig.enabled);
   }
 
   public validateKeyMap(keyMap: Record<string, number>): ValidationResult {

@@ -199,6 +199,7 @@ export interface GestureConfig {
   lane: number;
   direction?: SwipeDirection;
   label: string;
+  enabled: boolean;
 }
 
 export interface InputConfig {
@@ -216,13 +217,13 @@ export const DEFAULT_KEY_MAP: Record<string, number> = {
 };
 
 export const DEFAULT_GESTURES: GestureConfig[] = [
-  { gesture: 'tap', lane: 0, label: '点击轨道1' },
-  { gesture: 'tap', lane: 1, label: '点击轨道2' },
-  { gesture: 'tap', lane: 2, label: '点击轨道3' },
-  { gesture: 'tap', lane: 3, label: '点击轨道4' },
-  { gesture: 'swipe', lane: -1, direction: 'left', label: '左滑' },
-  { gesture: 'swipe', lane: -1, direction: 'right', label: '右滑' },
-  { gesture: 'hold', lane: -1, label: '长按' }
+  { gesture: 'tap', lane: 0, label: '点击轨道1', enabled: true },
+  { gesture: 'tap', lane: 1, label: '点击轨道2', enabled: true },
+  { gesture: 'tap', lane: 2, label: '点击轨道3', enabled: true },
+  { gesture: 'tap', lane: 3, label: '点击轨道4', enabled: true },
+  { gesture: 'swipe', lane: -1, direction: 'left', label: '左滑', enabled: true },
+  { gesture: 'swipe', lane: -1, direction: 'right', label: '右滑', enabled: true },
+  { gesture: 'hold', lane: -1, label: '长按', enabled: true }
 ];
 
 export const DEFAULT_INPUT_CONFIG: InputConfig = {
