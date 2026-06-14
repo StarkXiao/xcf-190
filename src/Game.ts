@@ -6,8 +6,9 @@ import { ResultScreen } from './modules/ResultScreen';
 import { StartScreen } from './modules/StartScreen';
 import { ScoreStorage } from './modules/ScoreStorage';
 import { LyricProgress } from './modules/LyricProgress';
+import { InputConfigManager } from './modules/InputConfigManager';
 import { getSongById, getNotesForDifficulty } from './data/songs';
-import { ChartData, CharHitRecord, Difficulty, JudgeEvent, JudgeResult, LANE_COUNT, NoteData, NoteType } from './types';
+import { ChartData, CharHitRecord, Difficulty, JudgeEvent, JudgeResult, LANE_COUNT, NoteData, NoteType, InputConfig } from './types';
 
 interface NoteSprite {
   container: PIXI.Container;
@@ -69,19 +70,21 @@ export class Game {
   private laneWidth: number;
   private judgeLineY: number = 600;
   
-  private keyMap: Record<string, number> = {
-    'd': 0, 'D': 0,
-    'f': 1, 'F': 1,
-    'j': 2, 'J': 2,
-    'k': 3, 'K': 3
-  };
+  private keyMap: Record<string, number>;
+  private laneHintTexts: PIXI.Text[] = [];
   
   private pressedKeys: Set<number> = new Set();
   private laneTouchAreas: PIXI.Graphics[] = [];
   private activeTouches: Map<number, TouchInfo> = new Map();
+  
+  private inputConfigManager: InputConfigManager;
+  private removeConfigListener?: () => void;
 
   constructor(container: HTMLElement) {
     this.container = container;
+    
+    this.inputConfigManager = InputConfigManager.getInstance();
+    this.keyMap = this.inputConfigManager.getKeyMap();
     
     const width = Math.min(window.innerWidth, 720);
     const height = Math.min(window.innerHeight, 1080);
@@ -136,6 +139,7 @@ export class Game {
     this.setupInput();
     this.setupUI();
     this.setupCallbacks();
+    this.setupConfigListener();
     
     this.app.ticker.add(this.update.bind(this));
     
@@ -271,17 +275,18 @@ export class Game {
       align: 'center'
     });
     
-    const keys = ['D', 'F', 'J', 'K'];
-    const typeLabels = ['', '', '', ''];
     const hintY = this.judgeLineY + 80;
     
+    this.laneHintTexts = [];
     for (let i = 0; i < LANE_COUNT; i++) {
-      const keyHint = new PIXI.Text(keys[i] + typeLabels[i], hintStyle);
+      const key = this.inputConfigManager.getKeyDisplayForLane(i);
+      const keyHint = new PIXI.Text(key, hintStyle);
       keyHint.anchor.set(0.5);
       keyHint.x = i * this.laneWidth + this.laneWidth / 2;
       keyHint.y = hintY;
       keyHint.alpha = 0.5;
       this.uiLayer.addChild(keyHint);
+      this.laneHintTexts.push(keyHint);
     }
 
     const legendStyle = new PIXI.TextStyle({
@@ -304,6 +309,22 @@ export class Game {
       text.x = 10 + i * 75;
       text.y = this.app.screen.height - 20;
       this.uiLayer.addChild(text);
+    });
+  }
+
+  private updateLaneHints(): void {
+    for (let i = 0; i < LANE_COUNT; i++) {
+      const hint = this.laneHintTexts[i];
+      if (hint) {
+        hint.text = this.inputConfigManager.getKeyDisplayForLane(i);
+      }
+    }
+  }
+
+  private setupConfigListener(): void {
+    this.removeConfigListener = this.inputConfigManager.addChangeListener((config: InputConfig) => {
+      this.keyMap = { ...config.keyMap };
+      this.updateLaneHints();
     });
   }
 
@@ -861,6 +882,9 @@ export class Game {
   }
 
   public destroy(): void {
+    if (this.removeConfigListener) {
+      this.removeConfigListener();
+    }
     this.app.destroy(true);
   }
 }

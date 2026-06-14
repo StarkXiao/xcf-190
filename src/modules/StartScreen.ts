@@ -1,7 +1,8 @@
 import * as PIXI from 'pixi.js';
-import { ChartData, Difficulty } from '../types';
+import { ChartData, Difficulty, LANE_COUNT } from '../types';
 import { songs } from '../data/songs';
 import { ScoreStorage } from './ScoreStorage';
+import { InputConfigManager } from './InputConfigManager';
 
 const DIFFICULTY_LABELS: Record<Difficulty, string> = {
   easy: '简单',
@@ -28,12 +29,27 @@ export class StartScreen {
   private leaderboardVisible: boolean = false;
   private leaderboardContent: PIXI.Container;
 
+  private settingsPanel: PIXI.Container;
+  private settingsVisible: boolean = false;
+  private settingsContent: PIXI.Container;
+  private settingsTab: 'keys' | 'gestures' | 'advanced' = 'keys';
+  private keyBindingButtons: PIXI.Graphics[] = [];
+  private capturingLane: number | null = null;
+  private captureHint?: PIXI.Text;
+  private statusMessage?: PIXI.Text;
+  private previewLaneHints: PIXI.Text[] = [];
+
+  private inputConfigManager: InputConfigManager;
+
   constructor(app: PIXI.Application) {
     this.app = app;
     this.container = new PIXI.Container();
     this.songInfoContainer = new PIXI.Container();
     this.leaderboardPanel = new PIXI.Container();
     this.leaderboardContent = new PIXI.Container();
+    this.settingsPanel = new PIXI.Container();
+    this.settingsContent = new PIXI.Container();
+    this.inputConfigManager = InputConfigManager.getInstance();
     this.app.stage.addChild(this.container);
     this.createScreen();
   }
@@ -48,6 +64,10 @@ export class StartScreen {
     this.createControlsHint();
     this.createLeaderboardToggle();
     this.createLeaderboardPanel();
+    this.createSettingsToggle();
+    this.createSettingsPanel();
+    this.setupConfigChangeListener();
+    this.setupKeyCaptureListener();
   }
 
   private createBackground(): void {
@@ -496,10 +516,17 @@ export class StartScreen {
       lineHeight: 20
     });
 
-    const hint = new PIXI.Text('操作说明: 键盘 D F J K 对应四个轨道\n或直接点击屏幕轨道区域', hintStyle);
+    const keys = [];
+    for (let i = 0; i < LANE_COUNT; i++) {
+      keys.push(this.inputConfigManager.getKeyDisplayForLane(i));
+    }
+    const keyHint = keys.join(' ');
+
+    const hint = new PIXI.Text(`操作说明: 键盘 ${keyHint} 对应四个轨道\n或直接点击屏幕轨道区域`, hintStyle);
     hint.anchor.set(0.5);
     hint.x = this.app.screen.width / 2;
     hint.y = Math.min(this.app.screen.height - 35, 610);
+    hint.name = 'controlsHint';
     this.container.addChild(hint);
   }
 
@@ -820,6 +847,817 @@ export class StartScreen {
     this.container.visible = false;
     this.leaderboardVisible = false;
     this.leaderboardPanel.visible = false;
+  }
+
+  private createSettingsToggle(): void {
+    const btnContainer = new PIXI.Graphics() as PIXI.Graphics & { labelText?: PIXI.Text };
+    btnContainer.x = 70;
+    btnContainer.y = 120;
+
+    btnContainer.beginFill(0x3498db, 0.85);
+    btnContainer.lineStyle(2, 0xffd700, 0.6);
+    btnContainer.drawRoundedRect(-40, -20, 80, 40, 10);
+    btnContainer.endFill();
+
+    const btnStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 13,
+      fontWeight: 'bold',
+      fill: 0xffffff,
+      align: 'center'
+    });
+
+    const text = new PIXI.Text('⚙ 设置', btnStyle);
+    text.anchor.set(0.5);
+    btnContainer.addChild(text);
+
+    btnContainer.interactive = true;
+    btnContainer.cursor = 'pointer';
+    btnContainer.on('pointerdown', () => this.toggleSettings());
+
+    this.container.addChild(btnContainer);
+  }
+
+  private createSettingsPanel(): void {
+    this.settingsPanel.x = 0;
+    this.settingsPanel.y = 0;
+    this.settingsPanel.visible = false;
+
+    const mask = new PIXI.Graphics();
+    mask.beginFill(0x000000, 0.9);
+    mask.drawRect(0, 0, this.app.screen.width, this.app.screen.height);
+    mask.endFill();
+    mask.interactive = true;
+    this.settingsPanel.addChild(mask);
+
+    const panelWidth = Math.min(680, this.app.screen.width - 40);
+    const panelHeight = Math.min(720, this.app.screen.height - 60);
+    const panelX = (this.app.screen.width - panelWidth) / 2;
+    const panelY = (this.app.screen.height - panelHeight) / 2;
+
+    const panelBg = new PIXI.Graphics();
+    panelBg.beginFill(0x151530, 0.98);
+    panelBg.lineStyle(3, 0x3498db, 0.8);
+    panelBg.drawRoundedRect(panelX, panelY, panelWidth, panelHeight, 16);
+    panelBg.endFill();
+    this.settingsPanel.addChild(panelBg);
+
+    const titleStyle = new PIXI.TextStyle({
+      fontFamily: 'serif',
+      fontSize: 28,
+      fill: 0xffd700,
+      fontWeight: 'bold',
+      stroke: 0x8b4513,
+      strokeThickness: 2,
+      align: 'center'
+    });
+
+    const title = new PIXI.Text('⚙ 操作设置', titleStyle);
+    title.anchor.set(0.5);
+    title.x = this.app.screen.width / 2;
+    title.y = panelY + 35;
+    this.settingsPanel.addChild(title);
+
+    const closeBtn = new PIXI.Graphics();
+    closeBtn.x = panelX + panelWidth - 40;
+    closeBtn.y = panelY + 30;
+    closeBtn.beginFill(0xff6b6b, 0.9);
+    closeBtn.drawRoundedRect(-18, -18, 36, 36, 8);
+    closeBtn.endFill();
+    closeBtn.interactive = true;
+    closeBtn.cursor = 'pointer';
+    closeBtn.on('pointerdown', () => this.toggleSettings());
+
+    const closeStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 20,
+      fontWeight: 'bold',
+      fill: 0xffffff,
+      align: 'center'
+    });
+    const closeText = new PIXI.Text('✕', closeStyle);
+    closeText.anchor.set(0.5);
+    closeBtn.addChild(closeText);
+    this.settingsPanel.addChild(closeBtn);
+
+    this.settingsContent.x = 0;
+    this.settingsContent.y = panelY + 70;
+    this.settingsPanel.addChild(this.settingsContent);
+
+    this.container.addChild(this.settingsPanel);
+  }
+
+  private toggleSettings(): void {
+    this.settingsVisible = !this.settingsVisible;
+    this.settingsPanel.visible = this.settingsVisible;
+    this.capturingLane = null;
+    if (this.settingsVisible) {
+      this.updateSettingsContent();
+    }
+  }
+
+  private updateSettingsContent(): void {
+    this.settingsContent.removeChildren();
+    this.keyBindingButtons = [];
+
+    const panelWidth = Math.min(680, this.app.screen.width - 40);
+    const panelX = (this.app.screen.width - panelWidth) / 2;
+    const contentWidth = panelWidth - 60;
+    const startX = panelX + 30;
+
+    this.createSettingsTabs(startX, contentWidth);
+
+    if (this.settingsTab === 'keys') {
+      this.createKeyBindingSettings(startX, contentWidth);
+    } else if (this.settingsTab === 'gestures') {
+      this.createGestureSettings(startX, contentWidth);
+    } else {
+      this.createAdvancedSettings(startX, contentWidth);
+    }
+  }
+
+  private createSettingsTabs(startX: number, contentWidth: number): void {
+    const tabs = [
+      { key: 'keys' as const, label: '按键设置', color: 0x3498db },
+      { key: 'gestures' as const, label: '手势设置', color: 0x2ecc71 },
+      { key: 'advanced' as const, label: '高级设置', color: 0xe67e22 }
+    ];
+
+    const tabWidth = contentWidth / 3 - 10;
+    const tabHeight = 44;
+
+    tabs.forEach((tab, index) => {
+      const tabBtn = new PIXI.Graphics();
+      const x = startX + index * (tabWidth + 15);
+      tabBtn.x = x;
+      tabBtn.y = 0;
+
+      const isSelected = this.settingsTab === tab.key;
+
+      if (isSelected) {
+        tabBtn.lineStyle(3, 0xffffff, 1);
+        tabBtn.beginFill(tab.color, 1);
+      } else {
+        tabBtn.lineStyle(2, tab.color, 0.6);
+        tabBtn.beginFill(tab.color, 0.3);
+      }
+      tabBtn.drawRoundedRect(0, 0, tabWidth, tabHeight, 8);
+      tabBtn.endFill();
+
+      const textStyle = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 16,
+        fontWeight: 'bold',
+        fill: isSelected ? 0xffffff : 0xdddddd,
+        align: 'center'
+      });
+
+      const text = new PIXI.Text(tab.label, textStyle);
+      text.anchor.set(0.5);
+      text.x = tabWidth / 2;
+      text.y = tabHeight / 2;
+      tabBtn.addChild(text);
+
+      tabBtn.interactive = true;
+      tabBtn.cursor = 'pointer';
+      tabBtn.on('pointerdown', () => {
+        this.settingsTab = tab.key;
+        this.updateSettingsContent();
+      });
+
+      this.settingsContent.addChild(tabBtn);
+    });
+  }
+
+  private createKeyBindingSettings(startX: number, contentWidth: number): void {
+    const sectionY = 70;
+
+    const sectionTitleStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 18,
+      fontWeight: 'bold',
+      fill: 0xffd700,
+      align: 'left'
+    });
+
+    const sectionTitle = new PIXI.Text('键盘按键映射', sectionTitleStyle);
+    sectionTitle.anchor.set(0, 0);
+    sectionTitle.x = startX;
+    sectionTitle.y = sectionY;
+    this.settingsContent.addChild(sectionTitle);
+
+    const hintStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 12,
+      fill: 0x888888,
+      align: 'left'
+    });
+    const hint = new PIXI.Text('点击按键按钮，然后按下新的按键进行绑定', hintStyle);
+    hint.anchor.set(0, 0);
+    hint.x = startX;
+    hint.y = sectionY + 30;
+    this.settingsContent.addChild(hint);
+
+    const btnWidth = 100;
+    const btnHeight = 50;
+    const btnSpacing = (contentWidth - LANE_COUNT * btnWidth) / (LANE_COUNT - 1);
+
+    for (let i = 0; i < LANE_COUNT; i++) {
+      const btnX = startX + i * (btnWidth + btnSpacing);
+      const btnY = sectionY + 60;
+
+      const laneLabelStyle = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 14,
+        fill: 0xaaaaaa,
+        align: 'center'
+      });
+      const laneLabel = new PIXI.Text(`轨道 ${i + 1}`, laneLabelStyle);
+      laneLabel.anchor.set(0.5);
+      laneLabel.x = btnX + btnWidth / 2;
+      laneLabel.y = btnY - 20;
+      this.settingsContent.addChild(laneLabel);
+
+      const keyBtn = this.createKeyBindingButton(i, btnX, btnY, btnWidth, btnHeight);
+      this.keyBindingButtons.push(keyBtn);
+      this.settingsContent.addChild(keyBtn);
+    }
+
+    this.captureHint = new PIXI.Text('', hintStyle);
+    this.captureHint.anchor.set(0, 0);
+    this.captureHint.x = startX;
+    this.captureHint.y = sectionY + 140;
+    this.settingsContent.addChild(this.captureHint);
+
+    this.statusMessage = new PIXI.Text('', hintStyle);
+    this.statusMessage.anchor.set(0, 0);
+    this.statusMessage.x = startX;
+    this.statusMessage.y = sectionY + 160;
+    this.settingsContent.addChild(this.statusMessage);
+
+    this.createPreviewSection(startX, sectionY + 190, contentWidth);
+
+    const resetBtn = this.createActionButton(
+      '恢复默认按键',
+      startX + contentWidth / 2 - 110,
+      sectionY + 340,
+      220,
+      44,
+      0xe74c3c,
+      () => {
+        this.inputConfigManager.resetToDefaults();
+        this.showStatus('已恢复默认设置', 0x2ecc71);
+      }
+    );
+    this.settingsContent.addChild(resetBtn);
+  }
+
+  private createKeyBindingButton(lane: number, x: number, y: number, width: number, height: number): PIXI.Graphics {
+    const btn = new PIXI.Graphics() as PIXI.Graphics & { keyText?: PIXI.Text };
+    btn.x = x;
+    btn.y = y;
+
+    const currentKey = this.inputConfigManager.getKeyDisplayForLane(lane);
+    this.drawKeyButton(btn, width, height, currentKey, false);
+
+    btn.interactive = true;
+    btn.cursor = 'pointer';
+    btn.on('pointerdown', () => {
+      if (this.capturingLane === lane) {
+        this.capturingLane = null;
+        this.updateCaptureHint();
+        this.updateKeyBindingButtons();
+      } else {
+        this.capturingLane = lane;
+        this.updateCaptureHint();
+        this.updateKeyBindingButtons();
+      }
+    });
+
+    return btn;
+  }
+
+  private drawKeyButton(btn: PIXI.Graphics & { keyText?: PIXI.Text }, width: number, height: number, key: string, isCapturing: boolean): void {
+    btn.clear();
+    btn.removeChildren();
+
+    if (isCapturing) {
+      btn.lineStyle(3, 0xffd700, 1);
+      btn.beginFill(0x9b59b6, 0.8);
+    } else {
+      btn.lineStyle(2, 0x3498db, 0.8);
+      btn.beginFill(0x2a2a4a, 0.9);
+    }
+    btn.drawRoundedRect(0, 0, width, height, 10);
+    btn.endFill();
+
+    const textStyle = new PIXI.TextStyle({
+      fontFamily: 'monospace',
+      fontSize: 28,
+      fontWeight: 'bold',
+      fill: isCapturing ? 0xffd700 : 0xffffff,
+      align: 'center'
+    });
+
+    const text = new PIXI.Text(key.toUpperCase(), textStyle);
+    text.anchor.set(0.5);
+    text.x = width / 2;
+    text.y = height / 2;
+    btn.addChild(text);
+    (btn as any).keyText = text;
+  }
+
+  private updateKeyBindingButtons(): void {
+    const btnWidth = 100;
+    const btnHeight = 50;
+
+    for (let i = 0; i < LANE_COUNT; i++) {
+      const btn = this.keyBindingButtons[i] as PIXI.Graphics & { keyText?: PIXI.Text };
+      if (btn) {
+        const currentKey = this.inputConfigManager.getKeyDisplayForLane(i);
+        const isCapturing = this.capturingLane === i;
+        this.drawKeyButton(btn, btnWidth, btnHeight, isCapturing ? '...' : currentKey, isCapturing);
+      }
+    }
+  }
+
+  private updateCaptureHint(): void {
+    if (this.captureHint) {
+      if (this.capturingLane !== null) {
+        this.captureHint.text = `正在监听按键... 按下任意键绑定到轨道 ${this.capturingLane + 1}，按 ESC 取消`;
+        this.captureHint.style.fill = 0xffd700;
+      } else {
+        this.captureHint.text = '';
+      }
+    }
+  }
+
+  private showStatus(message: string, color: number = 0xffffff): void {
+    if (this.statusMessage) {
+      this.statusMessage.text = message;
+      this.statusMessage.style.fill = color;
+      setTimeout(() => {
+        if (this.statusMessage) {
+          this.statusMessage.text = '';
+        }
+      }, 3000);
+    }
+  }
+
+  private createPreviewSection(startX: number, y: number, contentWidth: number): void {
+    const previewTitleStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 16,
+      fontWeight: 'bold',
+      fill: 0xaaaaaa,
+      align: 'left'
+    });
+
+    const previewTitle = new PIXI.Text('实时预览 - 轨道标识', previewTitleStyle);
+    previewTitle.anchor.set(0, 0);
+    previewTitle.x = startX;
+    previewTitle.y = y;
+    this.settingsContent.addChild(previewTitle);
+
+    const previewBg = new PIXI.Graphics();
+    previewBg.beginFill(0x0a0a1a, 0.8);
+    previewBg.lineStyle(2, 0x444466, 0.5);
+    previewBg.drawRoundedRect(startX, y + 30, contentWidth, 80, 8);
+    previewBg.endFill();
+    this.settingsContent.addChild(previewBg);
+
+    const laneWidth = contentWidth / LANE_COUNT;
+    const hintStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 24,
+      fontWeight: 'bold',
+      fill: 0xffffff,
+      stroke: 0x000000,
+      strokeThickness: 2,
+      align: 'center'
+    });
+
+    this.previewLaneHints = [];
+    for (let i = 0; i < LANE_COUNT; i++) {
+      const key = this.inputConfigManager.getKeyDisplayForLane(i);
+      const keyHint = new PIXI.Text(key, hintStyle);
+      keyHint.anchor.set(0.5);
+      keyHint.x = startX + i * laneWidth + laneWidth / 2;
+      keyHint.y = y + 70;
+      keyHint.alpha = 0.8;
+      this.settingsContent.addChild(keyHint);
+      this.previewLaneHints.push(keyHint);
+    }
+
+    const dividerStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 14,
+      fill: 0x666666,
+      align: 'center'
+    });
+    for (let i = 1; i < LANE_COUNT; i++) {
+      const divider = new PIXI.Text('│', dividerStyle);
+      divider.anchor.set(0.5);
+      divider.x = startX + i * laneWidth;
+      divider.y = y + 70;
+      this.settingsContent.addChild(divider);
+    }
+  }
+
+  private createGestureSettings(startX: number, contentWidth: number): void {
+    const sectionY = 70;
+
+    const sectionTitleStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 18,
+      fontWeight: 'bold',
+      fill: 0xffd700,
+      align: 'left'
+    });
+
+    const sectionTitle = new PIXI.Text('移动端手势方案', sectionTitleStyle);
+    sectionTitle.anchor.set(0, 0);
+    sectionTitle.x = startX;
+    sectionTitle.y = sectionY;
+    this.settingsContent.addChild(sectionTitle);
+
+    const hintStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 12,
+      fill: 0x888888,
+      align: 'left',
+      lineHeight: 18
+    });
+    const hint = new PIXI.Text('配置在移动设备上的触控手势操作。点击轨道触发对应按键，滑动用于滑键音符。', hintStyle);
+    hint.anchor.set(0, 0);
+    hint.x = startX;
+    hint.y = sectionY + 30;
+    this.settingsContent.addChild(hint);
+
+    const gestures = this.inputConfigManager.getGestures();
+    const itemHeight = 50;
+    const itemY = sectionY + 70;
+
+    const iconMap: Record<string, string> = {
+      tap: '👆',
+      swipe: '👉',
+      hold: '✊'
+    };
+
+    gestures.forEach((gesture, index) => {
+      const y = itemY + index * (itemHeight + 10);
+
+      const itemBg = new PIXI.Graphics();
+      itemBg.beginFill(0x1a1a3a, 0.6);
+      itemBg.lineStyle(1, 0x3498db, 0.3);
+      itemBg.drawRoundedRect(startX, y, contentWidth, itemHeight, 8);
+      itemBg.endFill();
+      this.settingsContent.addChild(itemBg);
+
+      const iconStyle = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 24,
+        align: 'center'
+      });
+      const icon = new PIXI.Text(iconMap[gesture.gesture] || '?', iconStyle);
+      icon.anchor.set(0, 0.5);
+      icon.x = startX + 15;
+      icon.y = y + itemHeight / 2;
+      this.settingsContent.addChild(icon);
+
+      const labelStyle = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 16,
+        fill: 0xffffff,
+        align: 'left'
+      });
+      let labelText = gesture.label;
+      if (gesture.lane >= 0) {
+        labelText += ` → 轨道 ${gesture.lane + 1}`;
+      }
+      if (gesture.direction) {
+        const dirMap: Record<string, string> = { left: '←', right: '→', up: '↑', down: '↓' };
+        labelText += ` ${dirMap[gesture.direction] || ''}`;
+      }
+      const label = new PIXI.Text(labelText, labelStyle);
+      label.anchor.set(0, 0.5);
+      label.x = startX + 55;
+      label.y = y + itemHeight / 2;
+      this.settingsContent.addChild(label);
+
+      const statusStyle = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 12,
+        fill: 0x2ecc71,
+        align: 'right'
+      });
+      const status = new PIXI.Text('已启用', statusStyle);
+      status.anchor.set(1, 0.5);
+      status.x = startX + contentWidth - 15;
+      status.y = y + itemHeight / 2;
+      this.settingsContent.addChild(status);
+    });
+
+    const gestureInfoY = itemY + gestures.length * (itemHeight + 10) + 20;
+    const infoStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 13,
+      fill: 0x88ccff,
+      align: 'left',
+      lineHeight: 20
+    });
+    const info = new PIXI.Text(
+      '💡 提示：\n• 点击轨道区域：触发普通音符 (Tap)\n• 按住轨道不放：触发长按音符 (Hold)\n• 在轨道间滑动：触发滑键音符 (Slide)',
+      infoStyle
+    );
+    info.anchor.set(0, 0);
+    info.x = startX;
+    info.y = gestureInfoY;
+    this.settingsContent.addChild(info);
+  }
+
+  private createAdvancedSettings(startX: number, contentWidth: number): void {
+    const sectionY = 70;
+
+    const sectionTitleStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 18,
+      fontWeight: 'bold',
+      fill: 0xffd700,
+      align: 'left'
+    });
+
+    const sectionTitle = new PIXI.Text('高级设置', sectionTitleStyle);
+    sectionTitle.anchor.set(0, 0);
+    sectionTitle.x = startX;
+    sectionTitle.y = sectionY;
+    this.settingsContent.addChild(sectionTitle);
+
+    const labelStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 14,
+      fill: 0xcccccc,
+      align: 'left'
+    });
+
+    const valueStyle = new PIXI.TextStyle({
+      fontFamily: 'monospace',
+      fontSize: 16,
+      fontWeight: 'bold',
+      fill: 0x6b9dff,
+      align: 'center'
+    });
+
+    const swipeY = sectionY + 40;
+    const swipeLabel = new PIXI.Text('滑动阈值 (像素)', labelStyle);
+    swipeLabel.anchor.set(0, 0.5);
+    swipeLabel.x = startX;
+    swipeLabel.y = swipeY + 20;
+    this.settingsContent.addChild(swipeLabel);
+
+    const swipeValue = new PIXI.Text(`${this.inputConfigManager.getSwipeThreshold()} px`, valueStyle);
+    swipeValue.anchor.set(0, 0.5);
+    swipeValue.x = startX + 180;
+    swipeValue.y = swipeY + 20;
+    this.settingsContent.addChild(swipeValue);
+
+    const swipeDecBtn = this.createStepperButton(
+      '-',
+      startX + 280,
+      swipeY,
+      40,
+      40,
+      0xe74c3c,
+      () => {
+        const current = this.inputConfigManager.getSwipeThreshold();
+        const result = this.inputConfigManager.setSwipeThreshold(current - 10);
+        if (result.valid) {
+          swipeValue.text = `${this.inputConfigManager.getSwipeThreshold()} px`;
+        } else {
+          this.showStatus(result.errors[0], 0xe74c3c);
+        }
+      }
+    );
+    this.settingsContent.addChild(swipeDecBtn);
+
+    const swipeIncBtn = this.createStepperButton(
+      '+',
+      startX + 330,
+      swipeY,
+      40,
+      40,
+      0x2ecc71,
+      () => {
+        const current = this.inputConfigManager.getSwipeThreshold();
+        const result = this.inputConfigManager.setSwipeThreshold(current + 10);
+        if (result.valid) {
+          swipeValue.text = `${this.inputConfigManager.getSwipeThreshold()} px`;
+        } else {
+          this.showStatus(result.errors[0], 0xe74c3c);
+        }
+      }
+    );
+    this.settingsContent.addChild(swipeIncBtn);
+
+    const swipeHintStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 11,
+      fill: 0x666666,
+      align: 'left'
+    });
+    const swipeHint = new PIXI.Text('滑动手势需要移动的最小距离', swipeHintStyle);
+    swipeHint.anchor.set(0, 0);
+    swipeHint.x = startX;
+    swipeHint.y = swipeY + 45;
+    this.settingsContent.addChild(swipeHint);
+
+    const holdY = sectionY + 110;
+    const holdLabel = new PIXI.Text('长按阈值 (毫秒)', labelStyle);
+    holdLabel.anchor.set(0, 0.5);
+    holdLabel.x = startX;
+    holdLabel.y = holdY + 20;
+    this.settingsContent.addChild(holdLabel);
+
+    const holdValue = new PIXI.Text(`${this.inputConfigManager.getHoldThreshold()} ms`, valueStyle);
+    holdValue.anchor.set(0, 0.5);
+    holdValue.x = startX + 180;
+    holdValue.y = holdY + 20;
+    this.settingsContent.addChild(holdValue);
+
+    const holdDecBtn = this.createStepperButton(
+      '-',
+      startX + 280,
+      holdY,
+      40,
+      40,
+      0xe74c3c,
+      () => {
+        const current = this.inputConfigManager.getHoldThreshold();
+        const result = this.inputConfigManager.setHoldThreshold(current - 50);
+        if (result.valid) {
+          holdValue.text = `${this.inputConfigManager.getHoldThreshold()} ms`;
+        } else {
+          this.showStatus(result.errors[0], 0xe74c3c);
+        }
+      }
+    );
+    this.settingsContent.addChild(holdDecBtn);
+
+    const holdIncBtn = this.createStepperButton(
+      '+',
+      startX + 330,
+      holdY,
+      40,
+      40,
+      0x2ecc71,
+      () => {
+        const current = this.inputConfigManager.getHoldThreshold();
+        const result = this.inputConfigManager.setHoldThreshold(current + 50);
+        if (result.valid) {
+          holdValue.text = `${this.inputConfigManager.getHoldThreshold()} ms`;
+        } else {
+          this.showStatus(result.errors[0], 0xe74c3c);
+        }
+      }
+    );
+    this.settingsContent.addChild(holdIncBtn);
+
+    const holdHint = new PIXI.Text('判定为长按手势需要按住的最小时间', swipeHintStyle);
+    holdHint.anchor.set(0, 0);
+    holdHint.x = startX;
+    holdHint.y = holdY + 45;
+    this.settingsContent.addChild(holdHint);
+
+    const resetAllBtn = this.createActionButton(
+      '恢复所有默认设置',
+      startX + contentWidth / 2 - 110,
+      sectionY + 220,
+      220,
+      44,
+      0xe74c3c,
+      () => {
+        this.inputConfigManager.resetToDefaults();
+        this.showStatus('已恢复所有默认设置', 0x2ecc71);
+        this.updateSettingsContent();
+      }
+    );
+    this.settingsContent.addChild(resetAllBtn);
+  }
+
+  private createStepperButton(label: string, x: number, y: number, width: number, height: number, color: number, onClick: () => void): PIXI.Graphics {
+    const btn = new PIXI.Graphics();
+    btn.x = x;
+    btn.y = y;
+
+    btn.beginFill(color, 0.8);
+    btn.drawRoundedRect(0, 0, width, height, 8);
+    btn.endFill();
+
+    const textStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 24,
+      fontWeight: 'bold',
+      fill: 0xffffff,
+      align: 'center'
+    });
+
+    const text = new PIXI.Text(label, textStyle);
+    text.anchor.set(0.5);
+    text.x = width / 2;
+    text.y = height / 2;
+    btn.addChild(text);
+
+    btn.interactive = true;
+    btn.cursor = 'pointer';
+    btn.on('pointerdown', onClick);
+
+    return btn;
+  }
+
+  private createActionButton(label: string, x: number, y: number, width: number, height: number, color: number, onClick: () => void): PIXI.Graphics {
+    const btn = new PIXI.Graphics();
+    btn.x = x;
+    btn.y = y;
+
+    btn.beginFill(color, 0.9);
+    btn.drawRoundedRect(0, 0, width, height, 10);
+    btn.endFill();
+
+    const textStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 16,
+      fontWeight: 'bold',
+      fill: 0xffffff,
+      align: 'center'
+    });
+
+    const text = new PIXI.Text(label, textStyle);
+    text.anchor.set(0.5);
+    text.x = width / 2;
+    text.y = height / 2;
+    btn.addChild(text);
+
+    btn.interactive = true;
+    btn.cursor = 'pointer';
+    btn.on('pointerdown', onClick);
+
+    return btn;
+  }
+
+  private setupConfigChangeListener(): void {
+    this.inputConfigManager.addChangeListener(() => {
+      this.updateKeyBindingButtons();
+      this.updatePreviewLaneHints();
+      this.updateControlsHint();
+      if (this.settingsVisible && this.settingsTab === 'keys') {
+        this.updateSettingsContent();
+      }
+    });
+  }
+
+  private updatePreviewLaneHints(): void {
+    for (let i = 0; i < LANE_COUNT; i++) {
+      const hint = this.previewLaneHints[i];
+      if (hint) {
+        hint.text = this.inputConfigManager.getKeyDisplayForLane(i);
+      }
+    }
+  }
+
+  private updateControlsHint(): void {
+    const oldHint = this.container.getChildByName('controlsHint') as PIXI.Text;
+    if (oldHint) {
+      this.container.removeChild(oldHint);
+      oldHint.destroy();
+    }
+    this.createControlsHint();
+  }
+
+  private setupKeyCaptureListener(): void {
+    window.addEventListener('keydown', (e) => {
+      if (this.capturingLane !== null && this.settingsVisible) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        if (e.key === 'Escape') {
+          this.capturingLane = null;
+          this.updateCaptureHint();
+          this.updateKeyBindingButtons();
+          return;
+        }
+
+        const key = e.key.length === 1 ? e.key : e.key;
+        const result = this.inputConfigManager.setKeyForLane(key, this.capturingLane);
+
+        if (result.valid) {
+          this.showStatus(`已将按键 "${key.toUpperCase()}" 绑定到轨道 ${this.capturingLane + 1}`, 0x2ecc71);
+          this.capturingLane = null;
+          this.updateCaptureHint();
+        } else {
+          this.showStatus(result.errors[0], 0xe74c3c);
+        }
+      }
+    });
   }
 
   public destroy(): void {

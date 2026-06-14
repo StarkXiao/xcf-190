@@ -185,3 +185,62 @@ export const createInitialNoteTypeStats = (): NoteTypeStats => ({
 });
 
 export const LANE_COUNT = 4;
+
+export type GestureType = 'tap' | 'swipe' | 'hold';
+export type SwipeDirection = 'left' | 'right' | 'up' | 'down';
+
+export interface KeyConfig {
+  key: string;
+  lane: number;
+}
+
+export interface GestureConfig {
+  gesture: GestureType;
+  lane: number;
+  direction?: SwipeDirection;
+  label: string;
+}
+
+export interface InputConfig {
+  keyMap: Record<string, number>;
+  gestures: GestureConfig[];
+  swipeThreshold: number;
+  holdThreshold: number;
+}
+
+export const DEFAULT_KEY_MAP: Record<string, number> = {
+  'd': 0, 'D': 0,
+  'f': 1, 'F': 1,
+  'j': 2, 'J': 2,
+  'k': 3, 'K': 3
+};
+
+export const DEFAULT_GESTURES: GestureConfig[] = [
+  { gesture: 'tap', lane: 0, label: '点击轨道1' },
+  { gesture: 'tap', lane: 1, label: '点击轨道2' },
+  { gesture: 'tap', lane: 2, label: '点击轨道3' },
+  { gesture: 'tap', lane: 3, label: '点击轨道4' },
+  { gesture: 'swipe', lane: -1, direction: 'left', label: '左滑' },
+  { gesture: 'swipe', lane: -1, direction: 'right', label: '右滑' },
+  { gesture: 'hold', lane: -1, label: '长按' }
+];
+
+export const DEFAULT_INPUT_CONFIG: InputConfig = {
+  keyMap: { ...DEFAULT_KEY_MAP },
+  gestures: [...DEFAULT_GESTURES],
+  swipeThreshold: 50,
+  holdThreshold: 200
+};
+
+export interface ValidationResult {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+}
+
+export const RESERVED_KEYS = new Set([
+  'Escape', ' ', 'Spacebar',
+  'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+  'Tab', 'Enter', 'Backspace', 'Delete',
+  'Shift', 'Control', 'Alt', 'Meta', 'CapsLock'
+]);
