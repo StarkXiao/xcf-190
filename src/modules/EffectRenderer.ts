@@ -106,6 +106,36 @@ export class EffectRenderer {
     this.resonance = this.createResonanceEffect();
   }
 
+  private drawDashedLine(
+    graphics: PIXI.Graphics,
+    x1: number, y1: number, x2: number, y2: number,
+    dashLength: number, gapLength: number
+  ): void {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const totalLength = Math.sqrt(dx * dx + dy * dy);
+    
+    const nx = dx / totalLength;
+    const ny = dy / totalLength;
+    
+    let currentX = x1;
+    let currentY = y1;
+    let drawn = 0;
+    
+    while (drawn < totalLength) {
+      const drawLen = Math.min(dashLength, totalLength - drawn);
+      const endX = currentX + nx * drawLen;
+      const endY = currentY + ny * drawLen;
+      graphics.moveTo(currentX, currentY);
+      graphics.lineTo(endX, endY);
+      drawn += drawLen;
+      const skipLen = Math.min(gapLength, totalLength - drawn);
+      currentX = endX + nx * skipLen;
+      currentY = endY + ny * skipLen;
+      drawn += skipLen;
+    }
+  }
+
   private createAtmosphere(): AtmosphereState {
     const overlay = new PIXI.Graphics();
     overlay.beginFill(0x0a0a1a, 0);
@@ -474,6 +504,94 @@ export class EffectRenderer {
     container.addChild(line);
     
     return line;
+  }
+
+  public createEarlyJudgeLine(judgeLineY: number, offsetPixels: number): PIXI.Graphics {
+    const y = judgeLineY - offsetPixels;
+    const line = new PIXI.Graphics();
+    line.lineStyle(2, 0xffd700, 0.6);
+    this.drawDashedLine(line, 0, y, this.app.screen.width, y, 10, 10);
+    
+    const labelStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 12,
+      fill: 0xffd700,
+      fontWeight: 'bold',
+      align: 'right'
+    });
+    const label = new PIXI.Text('提前判定', labelStyle);
+    label.anchor.set(1, 0.5);
+    label.x = this.app.screen.width - 10;
+    label.y = y;
+    line.addChild(label);
+    
+    const glow = new PIXI.Graphics();
+    glow.beginFill(0xffd700, 0.08);
+    glow.drawRect(0, y - 8, this.app.screen.width, 16);
+    glow.endFill();
+    line.addChildAt(glow, 0);
+    
+    line.visible = false;
+    line.name = 'earlyJudgeLine';
+    return line;
+  }
+
+  public createBarBoundary(startY: number, endY: number, barIndex: number): PIXI.Container {
+    const container = new PIXI.Container();
+    
+    const barBg = new PIXI.Graphics();
+    barBg.beginFill(0x6b9dff, 0.05);
+    barBg.drawRect(0, startY, this.app.screen.width, endY - startY);
+    barBg.endFill();
+    container.addChild(barBg);
+    
+    const topLine = new PIXI.Graphics();
+    topLine.lineStyle(1, 0x6b9dff, 0.3);
+    this.drawDashedLine(topLine, 0, startY, this.app.screen.width, startY, 5, 5);
+    container.addChild(topLine);
+    
+    const labelStyle = new PIXI.TextStyle({
+      fontFamily: 'monospace',
+      fontSize: 10,
+      fill: 0x6b9dff,
+      align: 'left'
+    });
+    const label = new PIXI.Text(`第${barIndex + 1}小节`, labelStyle);
+    label.x = 5;
+    label.y = startY + 2;
+    container.addChild(label);
+    
+    return container;
+  }
+
+  public createLoopIndicator(startY: number, endY: number, isStart: boolean): PIXI.Graphics {
+    const y = isStart ? startY : endY;
+    const graphic = new PIXI.Graphics();
+    
+    graphic.beginFill(isStart ? 0x2ecc71 : 0xe74c3c, 0.15);
+    graphic.drawRect(0, y - 4, this.app.screen.width, 8);
+    graphic.endFill();
+    
+    graphic.lineStyle(2, isStart ? 0x2ecc71 : 0xe74c3c, 0.9);
+    graphic.moveTo(0, y);
+    graphic.lineTo(this.app.screen.width, y);
+    
+    const arrowStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 14,
+      fontWeight: 'bold',
+      fill: isStart ? 0x2ecc71 : 0xe74c3c,
+      stroke: 0x000000,
+      strokeThickness: 2
+    });
+    const arrowText = isStart ? '⟲ 循环起' : '循环止 ⟳';
+    const arrow = new PIXI.Text(arrowText, arrowStyle);
+    arrow.anchor.set(isStart ? 0 : 1, 0.5);
+    arrow.x = isStart ? 10 : this.app.screen.width - 10;
+    arrow.y = y;
+    graphic.addChild(arrow);
+    
+    return graphic;
   }
 
   public createLaneBackground(laneCount: number): PIXI.Graphics {

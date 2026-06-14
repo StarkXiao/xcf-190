@@ -60,6 +60,7 @@ export interface BestScore {
   good: number;
   miss: number;
   accuracy: number;
+  isPractice?: boolean;
 }
 
 export interface ScoreHistoryEntry {
@@ -75,6 +76,8 @@ export interface ScoreHistoryEntry {
   songId: string;
   songTitle: string;
   difficulty: Difficulty;
+  isPractice?: boolean;
+  practiceSpeed?: number;
 }
 
 export type BestScoreRecord = Record<string, Record<Difficulty, BestScore | null>>;
@@ -287,3 +290,30 @@ export const HIGH_JUDGMENT_TYPES: JudgeResult[] = ['perfect', 'great'];
 
 export const RESONANCE_DECAY_RATE = 0.002;
 export const RESONANCE_MISS_PENALTY = 0.3;
+
+export interface PracticeConfig {
+  enabled: boolean;
+  speedMultiplier: number;
+  loopEnabled: boolean;
+  loopStartBar: number;
+  loopEndBar: number;
+  showEarlyJudgeLine: boolean;
+  earlyJudgeOffset: number;
+}
+
+export const DEFAULT_PRACTICE_CONFIG: PracticeConfig = {
+  enabled: false,
+  speedMultiplier: 1.0,
+  loopEnabled: false,
+  loopStartBar: 0,
+  loopEndBar: 0,
+  showEarlyJudgeLine: false,
+  earlyJudgeOffset: 300
+};
+
+export interface BarInfo {
+  barIndex: number;
+  startTime: number;
+  endTime: number;
+  noteCount: number;
+}

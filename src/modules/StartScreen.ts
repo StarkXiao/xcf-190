@@ -1,5 +1,5 @@
 import * as PIXI from 'pixi.js';
-import { ChartData, Difficulty, LANE_COUNT } from '../types';
+import { ChartData, Difficulty, LANE_COUNT, PracticeConfig, DEFAULT_PRACTICE_CONFIG } from '../types';
 import { songs } from '../data/songs';
 import { ScoreStorage } from './ScoreStorage';
 import { InputConfigManager } from './InputConfigManager';
@@ -13,11 +13,17 @@ const DIFFICULTY_LABELS: Record<Difficulty, string> = {
 export class StartScreen {
   private app: PIXI.Application;
   private container: PIXI.Container;
-  private onStartCallback?: (songId: string, difficulty: Difficulty) => void;
+  private onStartCallback?: (songId: string, difficulty: Difficulty, practiceConfig: PracticeConfig) => void;
 
   private songList: ChartData[] = songs;
   private selectedSongIndex: number = 0;
   private selectedDifficulty: Difficulty = 'normal';
+  
+  private practiceConfig: PracticeConfig = { ...DEFAULT_PRACTICE_CONFIG };
+  
+  private practicePanel: PIXI.Container;
+  private practicePanelVisible: boolean = false;
+  private practiceStatusText?: PIXI.Text;
 
   private songInfoContainer: PIXI.Container;
   private difficultyButtons: PIXI.Graphics[] = [];
@@ -49,6 +55,7 @@ export class StartScreen {
     this.leaderboardContent = new PIXI.Container();
     this.settingsPanel = new PIXI.Container();
     this.settingsContent = new PIXI.Container();
+    this.practicePanel = new PIXI.Container();
     this.inputConfigManager = InputConfigManager.getInstance();
     this.app.stage.addChild(this.container);
     this.createScreen();
@@ -66,6 +73,8 @@ export class StartScreen {
     this.createLeaderboardPanel();
     this.createSettingsToggle();
     this.createSettingsPanel();
+    this.createPracticeToggle();
+    this.createPracticePanel();
     this.setupConfigChangeListener();
     this.setupKeyCaptureListener();
   }
@@ -827,11 +836,11 @@ export class StartScreen {
   private startGame(): void {
     if (this.onStartCallback) {
       const song = this.songList[this.selectedSongIndex];
-      this.onStartCallback(song.id, this.selectedDifficulty);
+      this.onStartCallback(song.id, this.selectedDifficulty, { ...this.practiceConfig });
     }
   }
 
-  public setOnStartCallback(callback: (songId: string, difficulty: Difficulty) => void): void {
+  public setOnStartCallback(callback: (songId: string, difficulty: Difficulty, practiceConfig: PracticeConfig) => void): void {
     this.onStartCallback = callback;
   }
 
@@ -1697,6 +1706,299 @@ export class StartScreen {
         }
       }
     });
+  }
+
+  private createPracticeToggle(): void {
+    const toggleContainer = new PIXI.Container();
+    toggleContainer.x = this.app.screen.width - 180;
+    toggleContainer.y = 80;
+    
+    const btn = new PIXI.Graphics();
+    btn.x = 0;
+    btn.y = 0;
+    
+    const updateBtn = () => {
+      btn.clear();
+      if (this.practiceConfig.enabled) {
+        btn.beginFill(0xff6b9d, 0.9);
+        btn.lineStyle(2, 0xffd700, 0.9);
+      } else {
+        btn.beginFill(0x555566, 0.8);
+        btn.lineStyle(2, 0xaaaaaa, 0.7);
+      }
+      btn.drawRoundedRect(0, 0, 140, 36, 10);
+      btn.endFill();
+    };
+    updateBtn();
+    
+    btn.interactive = true;
+    btn.cursor = 'pointer';
+    
+    const btnStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 14,
+      fontWeight: 'bold',
+      fill: 0xffffff,
+      align: 'center'
+    });
+    
+    const updateText = () => {
+      const statusText = this.practiceConfig.enabled ? '🎯 练习中' : '📖 练习模式';
+      if (this.practiceStatusText) {
+        this.practiceStatusText.destroy();
+      }
+      this.practiceStatusText = new PIXI.Text(statusText, btnStyle);
+      this.practiceStatusText.x = 70;
+      this.practiceStatusText.y = 18;
+      this.practiceStatusText.anchor.set(0.5);
+      toggleContainer.addChild(this.practiceStatusText);
+    };
+    updateText();
+    
+    btn.on('pointerdown', () => {
+      this.practiceConfig.enabled = !this.practiceConfig.enabled;
+      this.practicePanelVisible = this.practiceConfig.enabled;
+      this.practicePanel.visible = this.practicePanelVisible;
+      updateBtn();
+      updateText();
+    });
+    
+    toggleContainer.addChild(btn);
+    this.container.addChild(toggleContainer);
+  }
+
+  private createPracticePanel(): void {
+    this.practicePanel.visible = false;
+    this.container.addChild(this.practicePanel);
+    
+    const panel = new PIXI.Graphics();
+    const panelX = 50;
+    const panelY = 200;
+    const panelW = this.app.screen.width - 100;
+    const panelH = 280;
+    
+    panel.beginFill(0x151530, 0.96);
+    panel.lineStyle(2, 0xff6b9d, 0.7);
+    panel.drawRoundedRect(panelX, panelY, panelW, panelH, 16);
+    panel.endFill();
+    this.practicePanel.addChild(panel);
+    
+    const titleStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 20,
+      fontWeight: 'bold',
+      fill: 0xffd700,
+      align: 'center'
+    });
+    const title = new PIXI.Text('🎯 新手练习设置', titleStyle);
+    title.x = this.app.screen.width / 2;
+    title.y = panelY + 24;
+    title.anchor.set(0.5);
+    this.practicePanel.addChild(title);
+    
+    this.createSpeedSelector(panelX + 40, panelY + 65, panelW - 80);
+    this.createEarlyJudgeLineToggle(panelX + 40, panelY + 130, panelW - 80);
+    this.createLoopSettings(panelX + 40, panelY + 190, panelW - 80);
+  }
+
+  private createSpeedSelector(startX: number, startY: number, width: number): void {
+    const labelStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 14,
+      fontWeight: 'bold',
+      fill: 0xffffff,
+      align: 'left'
+    });
+    
+    const label = new PIXI.Text('⏱️ 游戏速度 (音符下落速度)', labelStyle);
+    label.x = startX;
+    label.y = startY;
+    this.practicePanel.addChild(label);
+    
+    const speedOptions = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5];
+    const btnW = (width - 60) / speedOptions.length;
+    const btnH = 36;
+    const gap = 12;
+    
+    speedOptions.forEach((speed, index) => {
+      const btn = new PIXI.Graphics();
+      const x = startX + index * (btnW + gap);
+      btn.x = x;
+      btn.y = startY + 28;
+      
+      const updateBtn = () => {
+        btn.clear();
+        if (Math.abs(this.practiceConfig.speedMultiplier - speed) < 0.001) {
+          btn.beginFill(0xff6b9d, 1);
+          btn.lineStyle(2, 0xffd700, 0.9);
+        } else {
+          btn.beginFill(0x3a3a55, 0.9);
+          btn.lineStyle(1, 0x666688, 0.7);
+        }
+        btn.drawRoundedRect(0, 0, btnW, btnH, 8);
+        btn.endFill();
+      };
+      updateBtn();
+      
+      btn.interactive = true;
+      btn.cursor = 'pointer';
+      
+      const textStyle = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 13,
+        fontWeight: 'bold',
+        fill: 0xffffff,
+        align: 'center'
+      });
+      const txt = new PIXI.Text(`${speed.toFixed(2)}x`, textStyle);
+      txt.x = btnW / 2;
+      txt.y = btnH / 2;
+      txt.anchor.set(0.5);
+      btn.addChild(txt);
+      
+      btn.on('pointerdown', () => {
+        this.practiceConfig.speedMultiplier = speed;
+        this.practicePanel.children.forEach(child => {
+          if (child instanceof PIXI.Graphics && child.name) {
+          }
+        });
+        this.practicePanel.removeChildren();
+        const parent = this.practicePanel.parent;
+        this.practicePanel.destroy();
+        this.practicePanel = new PIXI.Container();
+        parent.addChild(this.practicePanel);
+        this.createPracticePanel();
+        this.practicePanel.visible = this.practiceConfig.enabled;
+      });
+      
+      this.practicePanel.addChild(btn);
+    });
+  }
+
+  private createEarlyJudgeLineToggle(startX: number, startY: number, width: number): void {
+    const labelStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 14,
+      fontWeight: 'bold',
+      fill: 0xffffff,
+      align: 'left'
+    });
+    
+    const label = new PIXI.Text('✨ 显示提前判定线 (辅助判断)', labelStyle);
+    label.x = startX;
+    label.y = startY;
+    this.practicePanel.addChild(label);
+    
+    const descStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 11,
+      fill: 0xaaaaaa,
+      align: 'left'
+    });
+    const desc = new PIXI.Text('在判定线上方显示辅助线，帮助新手提前判断音符落点', descStyle);
+    desc.x = startX;
+    desc.y = startY + 24;
+    this.practicePanel.addChild(desc);
+    
+    const toggleBtn = new PIXI.Graphics();
+    toggleBtn.x = startX + width - 100;
+    toggleBtn.y = startY - 2;
+    
+    const updateBtn = () => {
+      toggleBtn.clear();
+      if (this.practiceConfig.showEarlyJudgeLine) {
+        toggleBtn.beginFill(0x2ecc71, 1);
+        toggleBtn.lineStyle(2, 0xffd700, 0.8);
+        toggleBtn.drawRoundedRect(0, 0, 100, 40, 20);
+        toggleBtn.endFill();
+        
+        toggleBtn.beginFill(0xffffff, 1);
+        toggleBtn.drawCircle(76, 20, 13);
+        toggleBtn.endFill();
+      } else {
+        toggleBtn.beginFill(0x555566, 1);
+        toggleBtn.lineStyle(2, 0x888899, 0.7);
+        toggleBtn.drawRoundedRect(0, 0, 100, 40, 20);
+        toggleBtn.endFill();
+        
+        toggleBtn.beginFill(0xffffff, 1);
+        toggleBtn.drawCircle(24, 20, 13);
+        toggleBtn.endFill();
+      }
+    };
+    updateBtn();
+    
+    toggleBtn.interactive = true;
+    toggleBtn.cursor = 'pointer';
+    toggleBtn.on('pointerdown', () => {
+      this.practiceConfig.showEarlyJudgeLine = !this.practiceConfig.showEarlyJudgeLine;
+      updateBtn();
+    });
+    
+    this.practicePanel.addChild(toggleBtn);
+  }
+
+  private createLoopSettings(startX: number, startY: number, width: number): void {
+    const labelStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 14,
+      fontWeight: 'bold',
+      fill: 0xffffff,
+      align: 'left'
+    });
+    
+    const label = new PIXI.Text('🔄 按小节循环练习', labelStyle);
+    label.x = startX;
+    label.y = startY;
+    this.practicePanel.addChild(label);
+    
+    const descStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 11,
+      fill: 0xaaaaaa,
+      align: 'left'
+    });
+    const desc = new PIXI.Text('开启后可在暂停菜单中选择循环的小节范围，反复练习难点段落', descStyle);
+    desc.x = startX;
+    desc.y = startY + 24;
+    this.practicePanel.addChild(desc);
+    
+    const toggleBtn = new PIXI.Graphics();
+    toggleBtn.x = startX + width - 100;
+    toggleBtn.y = startY - 2;
+    
+    const updateBtn = () => {
+      toggleBtn.clear();
+      if (this.practiceConfig.loopEnabled) {
+        toggleBtn.beginFill(0x3498db, 1);
+        toggleBtn.lineStyle(2, 0xffd700, 0.8);
+        toggleBtn.drawRoundedRect(0, 0, 100, 40, 20);
+        toggleBtn.endFill();
+        
+        toggleBtn.beginFill(0xffffff, 1);
+        toggleBtn.drawCircle(76, 20, 13);
+        toggleBtn.endFill();
+      } else {
+        toggleBtn.beginFill(0x555566, 1);
+        toggleBtn.lineStyle(2, 0x888899, 0.7);
+        toggleBtn.drawRoundedRect(0, 0, 100, 40, 20);
+        toggleBtn.endFill();
+        
+        toggleBtn.beginFill(0xffffff, 1);
+        toggleBtn.drawCircle(24, 20, 13);
+        toggleBtn.endFill();
+      }
+    };
+    updateBtn();
+    
+    toggleBtn.interactive = true;
+    toggleBtn.cursor = 'pointer';
+    toggleBtn.on('pointerdown', () => {
+      this.practiceConfig.loopEnabled = !this.practiceConfig.loopEnabled;
+      updateBtn();
+    });
+    
+    this.practicePanel.addChild(toggleBtn);
   }
 
   public destroy(): void {

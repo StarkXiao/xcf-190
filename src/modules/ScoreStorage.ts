@@ -163,7 +163,9 @@ export class ScoreStorage {
     songTitle: string,
     difficulty: Difficulty,
     scoreData: ScoreData,
-    accuracy: number
+    accuracy: number,
+    isPractice: boolean = false,
+    practiceSpeed: number = 1.0
   ): ScoreHistoryEntry {
     const history = this.loadAllHistory();
 
@@ -179,7 +181,9 @@ export class ScoreStorage {
       timestamp: Date.now(),
       songId,
       songTitle,
-      difficulty
+      difficulty,
+      isPractice,
+      practiceSpeed
     };
 
     history.unshift(entry);

@@ -9,7 +9,7 @@ import { LyricProgress } from './modules/LyricProgress';
 import { InputConfigManager } from './modules/InputConfigManager';
 import { BookResonance } from './modules/BookResonance';
 import { getSongById, getNotesForDifficulty } from './data/songs';
-import { ChartData, CharHitRecord, Difficulty, JudgeEvent, JudgeResult, LANE_COUNT, NoteData, NoteType, InputConfig, ResonanceState } from './types';
+import { ChartData, CharHitRecord, Difficulty, JudgeEvent, JudgeResult, LANE_COUNT, NoteData, NoteType, InputConfig, ResonanceState, PracticeConfig, DEFAULT_PRACTICE_CONFIG, BarInfo } from './types';
 
 interface NoteSprite {
   container: PIXI.Container;
@@ -95,6 +95,13 @@ export class Game {
   private inputConfigManager: InputConfigManager;
   private removeConfigListener?: () => void;
 
+  private practiceConfig: PracticeConfig = { ...DEFAULT_PRACTICE_CONFIG };
+  private earlyJudgeLine?: PIXI.Graphics;
+  private barBoundaries: PIXI.Container[] = [];
+  private loopIndicators: PIXI.Graphics[] = [];
+  private practiceModeIndicator?: PIXI.Container;
+  private practiceSpeedDisplay?: PIXI.Text;
+
   constructor(container: HTMLElement) {
     this.container = container;
     
@@ -177,12 +184,16 @@ export class Game {
     
     const judgeLine = this.effectRenderer.createJudgeLine(this.judgeLineY);
     this.gameContainer.addChildAt(judgeLine, 2);
+
+    this.earlyJudgeLine = this.effectRenderer.createEarlyJudgeLine(this.judgeLineY, 150);
+    this.gameContainer.addChildAt(this.earlyJudgeLine, 3);
     
     this.createLaneTouchAreas();
     this.createLaneHints();
     this.createPauseButton();
     this.createPauseMenu();
     this.createResonanceDisplay();
+    this.createPracticeModeIndicator();
   }
 
   private createSongInfoOverlay(): void {
@@ -493,6 +504,152 @@ export class Game {
     this.uiLayer.addChild(buttonContainer);
   }
 
+  private createPracticeModeIndicator(): void {
+    const container = new PIXI.Container();
+    container.x = this.app.screen.width / 2;
+    container.y = 46;
+
+    const bg = new PIXI.Graphics();
+    bg.beginFill(0xff6b9d, 0.85);
+    bg.lineStyle(2, 0xffd700, 0.6);
+    bg.drawRoundedRect(-90, -20, 180, 40, 10);
+    bg.endFill();
+    container.addChild(bg);
+
+    const labelStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 16,
+      fontWeight: 'bold',
+      fill: 0xffffff,
+      stroke: 0x000000,
+      strokeThickness: 2,
+      align: 'center'
+    });
+    const label = new PIXI.Text('🎯 练习模式', labelStyle);
+    label.anchor.set(0.5);
+    container.addChild(label);
+
+    const speedStyle = new PIXI.TextStyle({
+      fontFamily: 'monospace',
+      fontSize: 14,
+      fontWeight: 'bold',
+      fill: 0xffd700,
+      align: 'center'
+    });
+    const speedText = new PIXI.Text('1.0x', speedStyle);
+    speedText.anchor.set(0.5);
+    speedText.y = 28;
+    container.addChild(speedText);
+    this.practiceSpeedDisplay = speedText;
+
+    container.visible = false;
+    this.practiceModeIndicator = container;
+    this.uiLayer.addChild(container);
+  }
+
+  private updatePracticeModeIndicator(): void {
+    if (!this.practiceModeIndicator || !this.practiceSpeedDisplay) return;
+    
+    this.practiceModeIndicator.visible = this.practiceConfig.enabled;
+    if (this.practiceConfig.enabled) {
+      this.practiceSpeedDisplay.text = `${this.practiceConfig.speedMultiplier.toFixed(2)}x`;
+    }
+  }
+
+  private clearBarBoundaries(): void {
+    this.barBoundaries.forEach(b => {
+      this.gameContainer.removeChild(b);
+      b.destroy();
+    });
+    this.barBoundaries = [];
+  }
+
+  private clearLoopIndicators(): void {
+    this.loopIndicators.forEach(i => {
+      this.gameContainer.removeChild(i);
+      i.destroy();
+    });
+    this.loopIndicators = [];
+  }
+
+  private updateBarBoundaries(bars: BarInfo[]): void {
+    this.clearBarBoundaries();
+    if (bars.length === 0 || !this.practiceConfig.enabled) return;
+
+    const noteSpeed = this.currentChart?.noteSpeed || 400;
+    bars.forEach((bar, index) => {
+      const timeUntilStart = bar.startTime - this.currentTime;
+      const timeUntilEnd = bar.endTime - this.currentTime;
+      const startY = this.judgeLineY - (timeUntilStart / 1000) * noteSpeed;
+      const endY = this.judgeLineY - (timeUntilEnd / 1000) * noteSpeed;
+      
+      if (endY > -100 && startY < this.app.screen.height + 100) {
+        const boundary = this.effectRenderer.createBarBoundary(
+          Math.max(0, startY),
+          Math.min(this.app.screen.height, endY),
+          index
+        );
+        boundary.alpha = 0.4;
+        this.gameContainer.addChildAt(boundary, 3);
+        this.barBoundaries.push(boundary);
+      }
+    });
+  }
+
+  private updateLoopIndicators(): void {
+    this.clearLoopIndicators();
+    if (!this.practiceConfig.loopEnabled) return;
+
+    const loopInfo = this.rhythmJudge.getLoopInfo();
+    if (loopInfo.startTime < 0 || loopInfo.endTime < 0) return;
+
+    const noteSpeed = this.currentChart?.noteSpeed || 400;
+    const timeUntilStart = loopInfo.startTime - this.currentTime;
+    const timeUntilEnd = loopInfo.endTime - this.currentTime;
+    const startY = this.judgeLineY - (timeUntilStart / 1000) * noteSpeed;
+    const endY = this.judgeLineY - (timeUntilEnd / 1000) * noteSpeed;
+
+    if (startY > -50 && startY < this.app.screen.height + 50) {
+      const startIndicator = this.effectRenderer.createLoopIndicator(startY, endY, true);
+      this.gameContainer.addChildAt(startIndicator, 5);
+      this.loopIndicators.push(startIndicator);
+    }
+    if (endY > -50 && endY < this.app.screen.height + 50) {
+      const endIndicator = this.effectRenderer.createLoopIndicator(startY, endY, false);
+      this.gameContainer.addChildAt(endIndicator, 5);
+      this.loopIndicators.push(endIndicator);
+    }
+  }
+
+  public setPracticeConfig(config: Partial<PracticeConfig>): void {
+    this.practiceConfig = { ...this.practiceConfig, ...config };
+    this.applyPracticeConfig();
+  }
+
+  private applyPracticeConfig(): void {
+    if (this.practiceConfig.enabled) {
+      this.rhythmJudge.setSpeedMultiplier(this.practiceConfig.speedMultiplier);
+      this.rhythmJudge.setLoopEnabled(this.practiceConfig.loopEnabled);
+      if (this.practiceConfig.loopEnabled) {
+        this.rhythmJudge.setLoopBars(this.practiceConfig.loopStartBar, this.practiceConfig.loopEndBar);
+      }
+      if (this.earlyJudgeLine) {
+        const offset = (this.practiceConfig.earlyJudgeOffset / 1000) * (this.currentChart?.noteSpeed || 400);
+        this.earlyJudgeLine.y = -offset;
+        this.earlyJudgeLine.visible = this.practiceConfig.showEarlyJudgeLine;
+      }
+    } else {
+      this.rhythmJudge.setSpeedMultiplier(1.0);
+      this.rhythmJudge.setLoopEnabled(false);
+      if (this.earlyJudgeLine) {
+        this.earlyJudgeLine.visible = false;
+      }
+      this.clearBarBoundaries();
+      this.clearLoopIndicators();
+    }
+    this.updatePracticeModeIndicator();
+  }
+
   private createPauseMenu(): void {
     const menuContainer = new PIXI.Container();
     menuContainer.visible = false;
@@ -532,10 +689,15 @@ export class Game {
     hint.y = this.app.screen.height / 2 - 60;
     menuContainer.addChild(hint);
     
+    const practiceSettings = this.createPracticePauseSettings();
+    practiceSettings.y = this.app.screen.height / 2 - 160;
+    menuContainer.addChild(practiceSettings);
+
+    const baseOffset = this.practiceConfig.enabled ? 30 : 0;
     const buttonConfigs = [
-      { label: '继续游戏', y: this.app.screen.height / 2, color: 0x6b9dff, action: () => this.resumeGame() },
-      { label: '重新开始', y: this.app.screen.height / 2 + 80, color: 0xffd700, action: () => this.restartFromPause() },
-      { label: '返回主菜单', y: this.app.screen.height / 2 + 160, color: 0xff6b6b, action: () => this.backToStartFromPause() }
+      { label: '继续游戏', y: this.app.screen.height / 2 + baseOffset, color: 0x6b9dff, action: () => this.resumeGame() },
+      { label: '重新开始', y: this.app.screen.height / 2 + 80 + baseOffset, color: 0xffd700, action: () => this.restartFromPause() },
+      { label: '返回主菜单', y: this.app.screen.height / 2 + 160 + baseOffset, color: 0xff6b6b, action: () => this.backToStartFromPause() }
     ];
     
     buttonConfigs.forEach(config => {
@@ -546,6 +708,188 @@ export class Game {
     
     this.pauseMenu = menuContainer;
     this.uiLayer.addChild(menuContainer);
+  }
+
+  private createPracticePauseSettings(): PIXI.Container {
+    const container = new PIXI.Container();
+    container.x = this.app.screen.width / 2;
+
+    if (!this.practiceConfig.enabled) {
+      return container;
+    }
+
+    const panelBg = new PIXI.Graphics();
+    panelBg.beginFill(0x1a1a3a, 0.9);
+    panelBg.lineStyle(2, 0xff6b9d, 0.5);
+    panelBg.drawRoundedRect(-220, -5, 440, 160, 12);
+    panelBg.endFill();
+    container.addChild(panelBg);
+
+    const titleStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 16,
+      fontWeight: 'bold',
+      fill: 0xffd700,
+      align: 'center'
+    });
+    const title = new PIXI.Text('⚙ 练习设置 (暂停中可调节)', titleStyle);
+    title.anchor.set(0.5);
+    title.y = 15;
+    container.addChild(title);
+
+    const speedLabelStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 13,
+      fill: 0xcccccc,
+      align: 'left'
+    });
+    const speedLabel = new PIXI.Text('速度调节:', speedLabelStyle);
+    speedLabel.anchor.set(0, 0.5);
+    speedLabel.x = -200;
+    speedLabel.y = 50;
+    container.addChild(speedLabel);
+
+    const speedButtons = [
+      { label: '0.5x', value: 0.5, x: -100 },
+      { label: '0.75x', value: 0.75, x: -30 },
+      { label: '1.0x', value: 1.0, x: 40 },
+      { label: '1.25x', value: 1.25, x: 110 },
+      { label: '1.5x', value: 1.5, x: 180 }
+    ];
+
+    speedButtons.forEach(btn => {
+      const btnContainer = new PIXI.Container();
+      btnContainer.x = btn.x;
+      btnContainer.y = 50;
+
+      const isActive = Math.abs(this.practiceConfig.speedMultiplier - btn.value) < 0.01;
+      const bg = new PIXI.Graphics();
+      bg.beginFill(isActive ? 0xffd700 : 0x333355, isActive ? 1 : 0.8);
+      bg.lineStyle(1, isActive ? 0xffffff : 0x555577, 0.6);
+      bg.drawRoundedRect(-28, -16, 56, 32, 6);
+      bg.endFill();
+      bg.interactive = true;
+      bg.cursor = 'pointer';
+      bg.on('pointerdown', () => {
+        this.practiceConfig.speedMultiplier = btn.value;
+        this.applyPracticeConfig();
+        this.refreshPauseMenu();
+      });
+      btnContainer.addChild(bg);
+
+      const btnStyle = new PIXI.TextStyle({
+        fontFamily: 'monospace',
+        fontSize: 12,
+        fontWeight: 'bold',
+        fill: isActive ? 0x000000 : 0xffffff,
+        align: 'center'
+      });
+      const btnText = new PIXI.Text(btn.label, btnStyle);
+      btnText.anchor.set(0.5);
+      btnContainer.addChild(btnText);
+
+      container.addChild(btnContainer);
+    });
+
+    const judgeLineLabel = new PIXI.Text('提前判定线:', speedLabelStyle);
+    judgeLineLabel.anchor.set(0, 0.5);
+    judgeLineLabel.x = -200;
+    judgeLineLabel.y = 95;
+    container.addChild(judgeLineLabel);
+
+    const judgeToggleContainer = new PIXI.Container();
+    judgeToggleContainer.x = -80;
+    judgeToggleContainer.y = 95;
+    const toggleBg = new PIXI.Graphics();
+    const judgeActive = this.practiceConfig.showEarlyJudgeLine;
+    toggleBg.beginFill(judgeActive ? 0x2ecc71 : 0x555555, 0.9);
+    toggleBg.lineStyle(1, judgeActive ? 0xffffff : 0x777777, 0.6);
+    toggleBg.drawRoundedRect(-50, -16, 100, 32, 6);
+    toggleBg.endFill();
+    toggleBg.interactive = true;
+    toggleBg.cursor = 'pointer';
+    toggleBg.on('pointerdown', () => {
+      this.practiceConfig.showEarlyJudgeLine = !this.practiceConfig.showEarlyJudgeLine;
+      this.applyPracticeConfig();
+      this.refreshPauseMenu();
+    });
+    judgeToggleContainer.addChild(toggleBg);
+    const toggleStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 12,
+      fontWeight: 'bold',
+      fill: 0xffffff,
+      align: 'center'
+    });
+    const toggleText = new PIXI.Text(judgeActive ? '✓ 显示中' : '未显示', toggleStyle);
+    toggleText.anchor.set(0.5);
+    judgeToggleContainer.addChild(toggleText);
+    container.addChild(judgeToggleContainer);
+
+    const loopLabel = new PIXI.Text('小节循环:', speedLabelStyle);
+    loopLabel.anchor.set(0, 0.5);
+    loopLabel.x = 40;
+    loopLabel.y = 95;
+    container.addChild(loopLabel);
+
+    const loopToggleContainer = new PIXI.Container();
+    loopToggleContainer.x = 130;
+    loopToggleContainer.y = 95;
+    const loopBg = new PIXI.Graphics();
+    const loopActive = this.practiceConfig.loopEnabled;
+    loopBg.beginFill(loopActive ? 0x9b59b6 : 0x555555, 0.9);
+    loopBg.lineStyle(1, loopActive ? 0xffffff : 0x777777, 0.6);
+    loopBg.drawRoundedRect(-50, -16, 100, 32, 6);
+    loopBg.endFill();
+    loopBg.interactive = true;
+    loopBg.cursor = 'pointer';
+    loopBg.on('pointerdown', () => {
+      this.practiceConfig.loopEnabled = !this.practiceConfig.loopEnabled;
+      if (this.practiceConfig.loopEnabled) {
+        const bars = this.rhythmJudge.getBars();
+        if (bars.length > 0) {
+          this.practiceConfig.loopStartBar = 0;
+          this.practiceConfig.loopEndBar = Math.min(1, bars.length - 1);
+        }
+      }
+      this.applyPracticeConfig();
+      this.refreshPauseMenu();
+    });
+    loopToggleContainer.addChild(loopBg);
+    const loopText = new PIXI.Text(loopActive ? `循环 ${this.practiceConfig.loopStartBar + 1}-${this.practiceConfig.loopEndBar + 1}` : '未启用', toggleStyle);
+    loopText.anchor.set(0.5);
+    loopToggleContainer.addChild(loopText);
+    container.addChild(loopToggleContainer);
+
+    const bars = this.rhythmJudge.getBars();
+    if (loopActive && bars.length > 0) {
+      const barHintStyle = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 11,
+        fill: 0x88ccff,
+        align: 'center'
+      });
+      const barHint = new PIXI.Text(`(共 ${bars.length} 小节，可在开始界面调整循环范围)`, barHintStyle);
+      barHint.anchor.set(0.5);
+      barHint.y = 130;
+      container.addChild(barHint);
+    }
+
+    return container;
+  }
+
+  private refreshPauseMenu(): void {
+    if (this.gameState === 'paused') {
+      const wasVisible = this.pauseMenu?.visible;
+      if (this.pauseMenu) {
+        this.uiLayer.removeChild(this.pauseMenu);
+        this.pauseMenu.destroy();
+      }
+      this.createPauseMenu();
+      if (wasVisible && this.pauseMenu) {
+        this.pauseMenu.visible = true;
+      }
+    }
   }
 
   private createPauseButtonItem(label: string, color: number, onClick: () => void): PIXI.Container {
@@ -799,7 +1143,8 @@ export class Game {
   }
 
   private setupCallbacks(): void {
-    this.startScreen.setOnStartCallback((songId: string, difficulty: Difficulty) => {
+    this.startScreen.setOnStartCallback((songId: string, difficulty: Difficulty, config: PracticeConfig) => {
+      this.setPracticeConfig(config);
       this.startGame(songId, difficulty);
     });
     
@@ -864,6 +1209,13 @@ export class Game {
     this.lyricProgress.update();
     
     this.updateNoteSprites();
+    
+    if (this.practiceConfig.enabled) {
+      const bars = this.rhythmJudge.getBars();
+      this.updateBarBoundaries(bars);
+      this.updateLoopIndicators();
+    }
+    
     this.checkGameEnd();
   }
 
@@ -943,6 +1295,7 @@ export class Game {
     };
     
     this.rhythmJudge.setConfig(difficultyConfig.noteSpeed, difficultyConfig.judgeTiming);
+    this.rhythmJudge.setBPM(song.bpm);
     this.scoreSystem = new ScoreSystem(notes.length);
     
     this.gameState = 'playing';
@@ -956,6 +1309,16 @@ export class Game {
     this.lyricProgress.setVisible(true);
     
     this.rhythmJudge.setNotes(notes);
+    this.applyPracticeConfig();
+    
+    if (this.practiceConfig.loopEnabled) {
+      const bars = this.rhythmJudge.getBars();
+      if (bars.length > 0) {
+        this.practiceConfig.loopStartBar = Math.max(0, Math.min(this.practiceConfig.loopStartBar, bars.length - 1));
+        this.practiceConfig.loopEndBar = Math.max(this.practiceConfig.loopStartBar, Math.min(this.practiceConfig.loopEndBar, bars.length - 1));
+        this.applyPracticeConfig();
+      }
+    }
     
     this.startTime = performance.now();
   }
@@ -997,6 +1360,13 @@ export class Game {
       sprite.container.destroy();
     });
     this.noteSprites.clear();
+    
+    this.clearBarBoundaries();
+    this.clearLoopIndicators();
+    if (this.earlyJudgeLine) {
+      this.earlyJudgeLine.visible = false;
+    }
+    this.updatePracticeModeIndicator();
     
     this.hidePauseMenu();
     this.updateUI();
@@ -1069,9 +1439,12 @@ export class Game {
 
     this.effectRenderer.clearHoldEffects();
     this.effectRenderer.clearSlideTrails();
+    this.clearBarBoundaries();
+    this.clearLoopIndicators();
 
     const score = this.scoreSystem.getScore();
     const accuracy = this.scoreSystem.calculateAccuracy();
+    const isPractice = this.practiceConfig.enabled;
 
     let isNewRecord = false;
     let previousBest = null;
@@ -1080,23 +1453,29 @@ export class Game {
         this.currentChart.song.id,
         this.currentChart.difficulty
       );
-      isNewRecord = ScoreStorage.isNewBestScore(
-        this.currentChart.song.id,
-        this.currentChart.difficulty,
-        score
-      );
-      ScoreStorage.saveBestScore(
-        this.currentChart.song.id,
-        this.currentChart.difficulty,
-        score,
-        accuracy
-      );
+      
+      if (!isPractice) {
+        isNewRecord = ScoreStorage.isNewBestScore(
+          this.currentChart.song.id,
+          this.currentChart.difficulty,
+          score
+        );
+        ScoreStorage.saveBestScore(
+          this.currentChart.song.id,
+          this.currentChart.difficulty,
+          score,
+          accuracy
+        );
+      }
+      
       ScoreStorage.addHistoryEntry(
         this.currentChart.song.id,
         this.currentChart.song.title,
         this.currentChart.difficulty,
         score,
-        accuracy
+        accuracy,
+        isPractice,
+        this.practiceConfig.speedMultiplier
       );
     }
 
@@ -1109,7 +1488,9 @@ export class Game {
       this.currentChart?.difficulty,
       isNewRecord,
       previousBest,
-      accuracy
+      accuracy,
+      isPractice,
+      this.practiceConfig.speedMultiplier
     );
   }
 

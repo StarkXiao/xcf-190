@@ -53,7 +53,9 @@ export class ResultScreen {
     difficulty?: Difficulty,
     isNewRecord?: boolean,
     previousBest?: BestScore | null,
-    accuracy: number = 0
+    accuracy: number = 0,
+    isPractice: boolean = false,
+    practiceSpeed: number = 1.0
   ): void {
     this.container.visible = true;
     this.container.removeChildren();
@@ -67,17 +69,70 @@ export class ResultScreen {
     this.container.addChild(mask);
 
     this.createPoemDisplay(charRecords);
-    this.createScoreDisplay(score, accuracy, previousBest);
+    this.createScoreDisplay(score, accuracy, previousBest, isPractice, practiceSpeed);
     this.createTypeStatsDisplay(score.typeStats);
-    if (isNewRecord) {
+    if (isNewRecord && !isPractice) {
       this.createNewRecordBadge();
     }
-    this.createSongInfoFooter(songId, difficulty);
+    if (isPractice) {
+      this.createPracticeModeBadge(practiceSpeed);
+    }
+    this.createSongInfoFooter(songId, difficulty, isPractice);
     this.createMiniLeaderboardButton(songId, difficulty);
     this.createRestartButton();
     this.createBackToStartButton();
     this.container.addChild(this.miniLeaderboardPanel);
     this.animateIn();
+  }
+
+  private createPracticeModeBadge(practiceSpeed: number): void {
+    const badgeContainer = new PIXI.Container();
+    badgeContainer.x = this.app.screen.width / 2;
+    badgeContainer.y = 70;
+
+    const badgeBg = new PIXI.Graphics();
+    badgeBg.beginFill(0xff6b9d, 0.9);
+    badgeBg.lineStyle(3, 0xffd700, 0.8);
+    badgeBg.drawRoundedRect(-160, -22, 320, 44, 12);
+    badgeBg.endFill();
+    badgeContainer.addChild(badgeBg);
+
+    const badgeStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 18,
+      fontWeight: 'bold',
+      fill: 0xffffff,
+      stroke: 0x000000,
+      strokeThickness: 2,
+      align: 'center'
+    });
+
+    const badgeText = new PIXI.Text(
+      `🎯 练习模式  (速度 ${practiceSpeed.toFixed(2)}x)  ·  成绩不计入记录`,
+      badgeStyle
+    );
+    badgeText.anchor.set(0.5);
+    badgeContainer.addChild(badgeText);
+
+    badgeContainer.scale.set(0);
+    badgeContainer.alpha = 0;
+    this.container.addChild(badgeContainer);
+
+    setTimeout(() => {
+      const startTime = Date.now();
+      const duration = 600;
+      const animate = () => {
+        const elapsed = Date.now() - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        const eased = 1 - Math.pow(1 - progress, 3);
+        badgeContainer.scale.set(eased);
+        badgeContainer.alpha = eased;
+        if (progress < 1) {
+          requestAnimationFrame(animate);
+        }
+      };
+      animate();
+    }, 300);
   }
 
   private createNewRecordBadge(): void {
@@ -255,7 +310,9 @@ export class ResultScreen {
   private createScoreDisplay(
     score: ScoreData,
     accuracy: number,
-    previousBest?: BestScore | null
+    previousBest?: BestScore | null,
+    isPractice: boolean = false,
+    practiceSpeed: number = 1.0
   ): void {
     const startY = this.app.screen.height / 2 + 10;
 
@@ -313,48 +370,70 @@ export class ResultScreen {
     this.container.addChild(accText);
     setTimeout(() => this.animateFadeIn(accText), 1050);
 
-    if (previousBest && previousBest.score < score.score) {
-      const scoreDiff = score.score - previousBest.score;
-      const accDiff = accuracy - previousBest.accuracy;
-      const improveStyle = new PIXI.TextStyle({
-        fontFamily: 'sans-serif',
-        fontSize: 14,
-        fontWeight: 'bold',
-        fill: 0x6bff9d,
-        stroke: 0x000000,
-        strokeThickness: 1,
-        align: 'center'
-      });
-      const improveText = new PIXI.Text(
-        `↑ 历史最佳 +${scoreDiff}分  +${accDiff >= 0 ? accDiff.toFixed(1) : accDiff.toFixed(1)}%`,
-        improveStyle
-      );
-      improveText.anchor.set(0.5);
-      improveText.x = this.app.screen.width / 2;
-      improveText.y = startY + 122;
-      improveText.alpha = 0;
-      this.container.addChild(improveText);
-      setTimeout(() => this.animateFadeIn(improveText), 1300);
-    } else if (previousBest && previousBest.score >= score.score) {
-      const scoreDiff = previousBest.score - score.score;
-      const gapStyle = new PIXI.TextStyle({
+    if (!isPractice) {
+      if (previousBest && previousBest.score < score.score) {
+        const scoreDiff = score.score - previousBest.score;
+        const accDiff = accuracy - previousBest.accuracy;
+        const improveStyle = new PIXI.TextStyle({
+          fontFamily: 'sans-serif',
+          fontSize: 14,
+          fontWeight: 'bold',
+          fill: 0x6bff9d,
+          stroke: 0x000000,
+          strokeThickness: 1,
+          align: 'center'
+        });
+        const improveText = new PIXI.Text(
+          `↑ 历史最佳 +${scoreDiff}分  +${accDiff >= 0 ? accDiff.toFixed(1) : accDiff.toFixed(1)}%`,
+          improveStyle
+        );
+        improveText.anchor.set(0.5);
+        improveText.x = this.app.screen.width / 2;
+        improveText.y = startY + 122;
+        improveText.alpha = 0;
+        this.container.addChild(improveText);
+        setTimeout(() => this.animateFadeIn(improveText), 1300);
+      } else if (previousBest && previousBest.score >= score.score) {
+        const scoreDiff = previousBest.score - score.score;
+        const gapStyle = new PIXI.TextStyle({
+          fontFamily: 'sans-serif',
+          fontSize: 13,
+          fill: 0xaaaaaa,
+          stroke: 0x000000,
+          strokeThickness: 1,
+          align: 'center'
+        });
+        const gapText = new PIXI.Text(
+          `距历史最佳还差 ${scoreDiff} 分`,
+          gapStyle
+        );
+        gapText.anchor.set(0.5);
+        gapText.x = this.app.screen.width / 2;
+        gapText.y = startY + 122;
+        gapText.alpha = 0;
+        this.container.addChild(gapText);
+        setTimeout(() => this.animateFadeIn(gapText), 1300);
+      }
+    } else {
+      const practiceHintStyle = new PIXI.TextStyle({
         fontFamily: 'sans-serif',
         fontSize: 13,
-        fill: 0xaaaaaa,
+        fill: 0x88ccff,
+        fontStyle: 'italic',
+        align: 'center',
         stroke: 0x000000,
-        strokeThickness: 1,
-        align: 'center'
+        strokeThickness: 1
       });
-      const gapText = new PIXI.Text(
-        `距历史最佳还差 ${scoreDiff} 分`,
-        gapStyle
+      const practiceHint = new PIXI.Text(
+        '💡 练习模式成绩仅保存在历史记录中，可随时对比查看进步',
+        practiceHintStyle
       );
-      gapText.anchor.set(0.5);
-      gapText.x = this.app.screen.width / 2;
-      gapText.y = startY + 122;
-      gapText.alpha = 0;
-      this.container.addChild(gapText);
-      setTimeout(() => this.animateFadeIn(gapText), 1300);
+      practiceHint.anchor.set(0.5);
+      practiceHint.x = this.app.screen.width / 2;
+      practiceHint.y = startY + 122;
+      practiceHint.alpha = 0;
+      this.container.addChild(practiceHint);
+      setTimeout(() => this.animateFadeIn(practiceHint), 1300);
     }
 
     const statsContainer = new PIXI.Container();
@@ -378,10 +457,15 @@ export class ResultScreen {
       `MaxCombo: ${score.maxCombo}`
     ];
 
+    if (isPractice && practiceSpeed !== 1.0) {
+      stats.push(`速度: ${practiceSpeed.toFixed(2)}x`);
+    }
+
+    const spacing = Math.min(90, (this.app.screen.width - 120) / stats.length);
     stats.forEach((stat, index) => {
       const text = new PIXI.Text(stat, statStyle);
       text.anchor.set(0.5);
-      text.x = (index - 2) * 85;
+      text.x = (index - (stats.length - 1) / 2) * spacing;
       text.alpha = 0;
       statsContainer.addChild(text);
       setTimeout(() => this.animateFadeIn(text), 1400 + index * 80);
@@ -521,7 +605,7 @@ export class ResultScreen {
     });
   }
 
-  private createSongInfoFooter(songId?: string, difficulty?: Difficulty): void {
+  private createSongInfoFooter(songId?: string, difficulty?: Difficulty, isPractice: boolean = false): void {
     if (!songId || !difficulty) return;
 
     const footerStyle = new PIXI.TextStyle({
@@ -532,8 +616,9 @@ export class ResultScreen {
     });
 
     const history = ScoreStorage.getScoreHistoryForDifficulty(songId, difficulty);
+    const practiceLabel = isPractice ? '  |  [练习模式]' : '  |  [正式成绩]';
     const footerText = new PIXI.Text(
-      `曲目: ${songId}  |  难度: ${DIFFICULTY_LABELS[difficulty]}  |  已游玩 ${history.length} 次`,
+      `曲目: ${songId}  |  难度: ${DIFFICULTY_LABELS[difficulty]}${practiceLabel}  |  已游玩 ${history.length} 次`,
       footerStyle
     );
     footerText.anchor.set(0.5);

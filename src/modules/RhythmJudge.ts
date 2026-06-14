@@ -1,4 +1,4 @@
-import { NoteData, JudgeResult, JudgeEvent, DEFAULT_JUDGE_TIMING, JudgeTiming, LANE_COUNT, NoteType } from '../types';
+import { NoteData, JudgeResult, JudgeEvent, DEFAULT_JUDGE_TIMING, JudgeTiming, LANE_COUNT, NoteType, BarInfo } from '../types';
 
 interface ActiveNote extends NoteData {
   id: number;
@@ -13,16 +13,28 @@ interface ActiveNote extends NoteData {
 
 export class RhythmJudge {
   private notes: ActiveNote[] = [];
+  private originalNotes: NoteData[] = [];
   private noteIdCounter: number = 0;
   private currentTime: number = 0;
   private noteSpeed: number = 400;
+  private baseNoteSpeed: number = 400;
   private judgeLineY: number = 600;
   private judgeTiming: JudgeTiming = DEFAULT_JUDGE_TIMING;
   private pressedLanes: Set<number> = new Set();
   private laneHoldMap: Map<number, number> = new Map();
+  private speedMultiplier: number = 1.0;
+  private bpm: number = 120;
+  private bars: BarInfo[] = [];
+  private loopStartBar: number = -1;
+  private loopEndBar: number = -1;
+  private loopStartTime: number = -1;
+  private loopEndTime: number = -1;
+  private loopEnabled: boolean = false;
+  private onLoopCallback?: () => void;
 
   constructor(noteSpeed: number, judgeLineY: number, judgeTiming?: JudgeTiming) {
     this.noteSpeed = noteSpeed;
+    this.baseNoteSpeed = noteSpeed;
     this.judgeLineY = judgeLineY;
     if (judgeTiming) {
       this.judgeTiming = judgeTiming;
@@ -30,11 +42,98 @@ export class RhythmJudge {
   }
 
   public setConfig(noteSpeed: number, judgeTiming: JudgeTiming): void {
-    this.noteSpeed = noteSpeed;
+    this.baseNoteSpeed = noteSpeed;
+    this.noteSpeed = this.baseNoteSpeed * this.speedMultiplier;
     this.judgeTiming = judgeTiming;
   }
 
+  public setSpeedMultiplier(multiplier: number): void {
+    this.speedMultiplier = Math.max(0.25, Math.min(2.0, multiplier));
+    this.noteSpeed = this.baseNoteSpeed * this.speedMultiplier;
+  }
+
+  public getSpeedMultiplier(): number {
+    return this.speedMultiplier;
+  }
+
+  public setBPM(bpm: number): void {
+    this.bpm = bpm;
+    this.calculateBars();
+  }
+
+  public setLoopEnabled(enabled: boolean): void {
+    this.loopEnabled = enabled;
+    if (!enabled) {
+      this.loopStartBar = -1;
+      this.loopEndBar = -1;
+      this.loopStartTime = -1;
+      this.loopEndTime = -1;
+    }
+  }
+
+  public setLoopBars(startBar: number, endBar: number): void {
+    this.loopStartBar = Math.max(0, Math.min(startBar, endBar));
+    this.loopEndBar = Math.min(endBar, this.bars.length - 1);
+    if (this.bars.length > 0) {
+      this.loopStartTime = this.bars[this.loopStartBar].startTime;
+      this.loopEndTime = this.bars[this.loopEndBar].endTime;
+    }
+  }
+
+  public setOnLoopCallback(callback: () => void): void {
+    this.onLoopCallback = callback;
+  }
+
+  public getBars(): BarInfo[] {
+    return this.bars;
+  }
+
+  public getLoopInfo(): { startBar: number; endBar: number; startTime: number; endTime: number; enabled: boolean } {
+    return {
+      startBar: this.loopStartBar,
+      endBar: this.loopEndBar,
+      startTime: this.loopStartTime,
+      endTime: this.loopEndTime,
+      enabled: this.loopEnabled
+    };
+  }
+
+  private calculateBars(): void {
+    if (this.originalNotes.length === 0 || this.bpm <= 0) {
+      this.bars = [];
+      return;
+    }
+
+    const beatDuration = 60000 / this.bpm;
+    const barDuration = beatDuration * 4;
+    const firstNoteTime = this.originalNotes[0].time;
+    const lastNote = this.originalNotes[this.originalNotes.length - 1];
+    const lastNoteEndTime = lastNote.time + (lastNote.duration || 0) + 1000;
+    const totalDuration = lastNoteEndTime - firstNoteTime;
+    const barCount = Math.max(1, Math.ceil(totalDuration / barDuration));
+
+    this.bars = [];
+    for (let i = 0; i < barCount; i++) {
+      const startTime = firstNoteTime + i * barDuration;
+      const endTime = startTime + barDuration;
+      const noteCount = this.originalNotes.filter(n => 
+        n.time >= startTime && n.time < endTime
+      ).length;
+      this.bars.push({
+        barIndex: i,
+        startTime,
+        endTime,
+        noteCount
+      });
+    }
+  }
+
+  public getBarAtTime(time: number): BarInfo | null {
+    return this.bars.find(bar => time >= bar.startTime && time < bar.endTime) || null;
+  }
+
   public setNotes(notes: NoteData[]): void {
+    this.originalNotes = [...notes];
     this.notes = notes.map(note => ({
       ...note,
       id: this.noteIdCounter++,
@@ -43,11 +142,51 @@ export class RhythmJudge {
       holdPressed: false,
       slideCurrentLane: note.lane
     }));
+    this.calculateBars();
+  }
+
+  public resetLoop(): void {
+    if (!this.loopEnabled || this.loopStartTime < 0) return;
+    
+    const loopDuration = this.loopEndTime - this.loopStartTime;
+    
+    this.notes.forEach(note => {
+      if (!note.isJudged && note.time >= this.loopStartTime) {
+        note.isJudged = true;
+      }
+    });
+    
+    const loopNotes = this.originalNotes.filter(n => 
+      n.time >= this.loopStartTime && n.time < this.loopEndTime
+    );
+    
+    loopNotes.forEach(note => {
+      const newTime = note.time - this.loopStartTime + this.loopEndTime + 200;
+      this.notes.push({
+        ...note,
+        time: newTime,
+        id: this.noteIdCounter++,
+        isJudged: false,
+        y: -100,
+        holdPressed: false,
+        slideCurrentLane: note.lane
+      });
+    });
+    
+    this.loopStartTime += loopDuration + 200;
+    this.loopEndTime += loopDuration + 200;
   }
 
   public update(currentTime: number): JudgeEvent[] {
     this.currentTime = currentTime;
     const events: JudgeEvent[] = [];
+
+    if (this.loopEnabled && this.loopEndTime > 0 && currentTime >= this.loopEndTime) {
+      this.resetLoop();
+      if (this.onLoopCallback) {
+        this.onLoopCallback();
+      }
+    }
 
     this.notes.forEach(note => {
       if (note.isJudged) return;
@@ -326,10 +465,19 @@ export class RhythmJudge {
 
   public reset(): void {
     this.notes = [];
+    this.originalNotes = [];
     this.currentTime = 0;
     this.noteIdCounter = 0;
     this.pressedLanes.clear();
     this.laneHoldMap.clear();
+    this.speedMultiplier = 1.0;
+    this.noteSpeed = this.baseNoteSpeed;
+    this.bars = [];
+    this.loopStartBar = -1;
+    this.loopEndBar = -1;
+    this.loopStartTime = -1;
+    this.loopEndTime = -1;
+    this.loopEnabled = false;
   }
 
   public getJudgeLineY(): number {
