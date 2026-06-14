@@ -6,11 +6,13 @@ import { ResultScreen } from './modules/ResultScreen';
 import { StartScreen } from './modules/StartScreen';
 import { ScoreStorage } from './modules/ScoreStorage';
 import { getSongById, getNotesForDifficulty } from './data/songs';
-import { ChartData, CharHitRecord, Difficulty, JudgeEvent, JudgeResult, LANE_COUNT, NoteData } from './types';
+import { ChartData, CharHitRecord, Difficulty, JudgeEvent, JudgeResult, LANE_COUNT, NoteData, NoteType } from './types';
 
 interface NoteSprite {
   container: PIXI.Container;
   noteData: NoteData;
+  noteId: number;
+  noteType: NoteType;
 }
 
 type GameState = 'start' | 'playing' | 'paused' | 'result';
@@ -21,6 +23,14 @@ interface RuntimeChart {
   notes: NoteData[];
   noteSpeed: number;
   poemLines: string[];
+}
+
+interface TouchInfo {
+  pointerId: number;
+  startLane: number;
+  currentLane: number;
+  startX: number;
+  currentX: number;
 }
 
 export class Game {
@@ -64,7 +74,9 @@ export class Game {
     'k': 3, 'K': 3
   };
   
+  private pressedKeys: Set<number> = new Set();
   private laneTouchAreas: PIXI.Graphics[] = [];
+  private activeTouches: Map<number, TouchInfo> = new Map();
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -182,9 +194,59 @@ export class Game {
       area.endFill();
       area.interactive = true;
       
-      area.on('pointerdown', () => {
+      area.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
         if (this.gameState === 'playing') {
-          this.handleInput(i);
+          const touchInfo: TouchInfo = {
+            pointerId: e.pointerId,
+            startLane: i,
+            currentLane: i,
+            startX: e.global.x,
+            currentX: e.global.x
+          };
+          this.activeTouches.set(e.pointerId, touchInfo);
+          this.handleInput(i, true);
+        }
+      });
+      
+      area.on('pointermove', (e: PIXI.FederatedPointerEvent) => {
+        if (this.gameState !== 'playing') return;
+        const touch = this.activeTouches.get(e.pointerId);
+        if (!touch) return;
+        
+        const newLane = Math.floor(e.global.x / this.laneWidth);
+        if (newLane >= 0 && newLane < LANE_COUNT && newLane !== touch.currentLane) {
+          const slideEvent = this.rhythmJudge.handleSlideMove(touch.currentLane, newLane);
+          if (slideEvent) {
+            this.processJudgeEvent(slideEvent);
+            this.effectRenderer.addSlideTrail(
+              touch.currentLane * this.laneWidth + this.laneWidth / 2,
+              newLane * this.laneWidth + this.laneWidth / 2,
+              this.judgeLineY,
+              touch.currentLane
+            );
+          }
+          touch.currentLane = newLane;
+        }
+        touch.currentX = e.global.x;
+      });
+      
+      area.on('pointerup', (e: PIXI.FederatedPointerEvent) => {
+        if (this.gameState === 'playing') {
+          const touch = this.activeTouches.get(e.pointerId);
+          if (touch) {
+            this.handleInput(touch.currentLane, false);
+            this.activeTouches.delete(e.pointerId);
+          }
+        }
+      });
+      
+      area.on('pointerout', (e: PIXI.FederatedPointerEvent) => {
+        if (this.gameState === 'playing') {
+          const touch = this.activeTouches.get(e.pointerId);
+          if (touch) {
+            this.handleInput(touch.currentLane, false);
+            this.activeTouches.delete(e.pointerId);
+          }
         }
       });
       
@@ -205,16 +267,39 @@ export class Game {
     });
     
     const keys = ['D', 'F', 'J', 'K'];
+    const typeLabels = ['', '', '', ''];
     const hintY = this.judgeLineY + 80;
     
     for (let i = 0; i < LANE_COUNT; i++) {
-      const keyHint = new PIXI.Text(keys[i], hintStyle);
+      const keyHint = new PIXI.Text(keys[i] + typeLabels[i], hintStyle);
       keyHint.anchor.set(0.5);
       keyHint.x = i * this.laneWidth + this.laneWidth / 2;
       keyHint.y = hintY;
       keyHint.alpha = 0.5;
       this.uiLayer.addChild(keyHint);
     }
+
+    const legendStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 12,
+      fill: 0x888888,
+      align: 'center'
+    });
+    
+    const legendTexts = [
+      { text: '■ 点击', color: 0x6b9dff },
+      { text: '■ 长按', color: 0x9b59b6 },
+      { text: '■ 滑键', color: 0xe74c3c }
+    ];
+    
+    legendTexts.forEach((legend, i) => {
+      const style = new PIXI.TextStyle({ ...legendStyle, fill: legend.color });
+      const text = new PIXI.Text(legend.text, style);
+      text.anchor.set(0, 0.5);
+      text.x = 10 + i * 75;
+      text.y = this.app.screen.height - 20;
+      this.uiLayer.addChild(text);
+    });
   }
 
   private createPauseButton(): void {
@@ -372,20 +457,46 @@ export class Game {
       const lane = this.keyMap[e.key];
       if (lane !== undefined) {
         e.preventDefault();
-        this.handleInput(lane);
+        if (!this.pressedKeys.has(lane)) {
+          this.pressedKeys.add(lane);
+          this.handleInput(lane, true);
+        }
+      }
+    });
+
+    window.addEventListener('keyup', (e) => {
+      if (this.gameState !== 'playing') return;
+      
+      const lane = this.keyMap[e.key];
+      if (lane !== undefined) {
+        e.preventDefault();
+        if (this.pressedKeys.has(lane)) {
+          this.pressedKeys.delete(lane);
+          this.handleInput(lane, false);
+        }
       }
     });
   }
 
-  private handleInput(lane: number): void {
+  private handleInput(lane: number, isPress: boolean): void {
     if (this.gameState !== 'playing') return;
     
-    const judgeEvent = this.rhythmJudge.handleInput(lane);
+    const judgeEvent = this.rhythmJudge.handleInput(lane, isPress);
+    
+    if (isPress) {
+      const holdNote = this.rhythmJudge.getActiveHoldNote(lane);
+      if (holdNote) {
+        const x = lane * this.laneWidth + this.laneWidth / 2;
+        this.effectRenderer.spawnHoldEffect(x, this.judgeLineY, lane);
+      }
+      this.flashLane(lane);
+    } else {
+      this.effectRenderer.removeHoldEffect(lane);
+    }
+    
     if (judgeEvent) {
       this.processJudgeEvent(judgeEvent);
     }
-    
-    this.flashLane(lane);
   }
 
   private flashLane(lane: number): void {
@@ -422,16 +533,21 @@ export class Game {
   }
 
   private processJudgeEvent(event: JudgeEvent): void {
-    this.scoreSystem.addJudgeResult(event.result);
+    this.scoreSystem.addJudgeResult(event.result, event.noteType);
     
     const x = event.lane * this.laneWidth + this.laneWidth / 2;
-    this.effectRenderer.spawnHitEffect(x, this.judgeLineY, event.lane, event.result);
+    this.effectRenderer.spawnHitEffect(x, this.judgeLineY, event.lane, event.result, event.noteType);
+    
+    if (event.noteType === 'hold') {
+      this.effectRenderer.removeHoldEffect(event.lane);
+    }
     
     const hit = event.result !== 'miss';
     this.charRecords.push({
       char: event.lyricChar,
       hit,
-      result: event.result as JudgeResult
+      result: event.result as JudgeResult,
+      noteType: event.noteType
     });
     this.effectRenderer.addLyricChar(event.lyricChar, this.charRecords.length - 1, hit);
     
@@ -472,17 +588,29 @@ export class Game {
     
     activeNotes.forEach(note => {
       if (!this.noteSprites.has(note.id)) {
-        const noteContainer = this.effectRenderer.createPageNote(note.lyricChar, note.lane);
+        const noteContainer = this.effectRenderer.createPageNote(
+          note.lyricChar, 
+          note.lane, 
+          note.type, 
+          note.duration,
+          this.currentChart?.noteSpeed || 400
+        );
         this.noteLayer.addChild(noteContainer);
         this.noteSprites.set(note.id, {
           container: noteContainer,
-          noteData: note
+          noteData: note,
+          noteId: note.id,
+          noteType: note.type
         });
       }
       
       const sprite = this.noteSprites.get(note.id);
       if (sprite) {
-        sprite.container.x = note.lane * this.laneWidth + this.laneWidth / 2;
+        if (note.type === 'slide' && note.slideStartTime !== undefined) {
+          sprite.container.x = note.slideCurrentLane * this.laneWidth + this.laneWidth / 2;
+        } else {
+          sprite.container.x = note.lane * this.laneWidth + this.laneWidth / 2;
+        }
         sprite.container.y = this.rhythmJudge.getNoteY(note);
       }
     });
@@ -547,12 +675,16 @@ export class Game {
     this.pausedTime = 0;
     this.pauseStartTime = 0;
     this.charRecords = [];
+    this.pressedKeys.clear();
+    this.activeTouches.clear();
     
     this.rhythmJudge.reset();
     if (this.scoreSystem) {
       this.scoreSystem.reset();
     }
     this.effectRenderer.clearLitCharacters();
+    this.effectRenderer.clearHoldEffects();
+    this.effectRenderer.clearSlideTrails();
     
     this.noteSprites.forEach(sprite => {
       this.noteLayer.removeChild(sprite.container);
@@ -625,6 +757,9 @@ export class Game {
     this.clearGameEndTimer();
     this.gameState = 'result';
     this.gameContainer.visible = false;
+    
+    this.effectRenderer.clearHoldEffects();
+    this.effectRenderer.clearSlideTrails();
     
     const score = this.scoreSystem.getScore();
     

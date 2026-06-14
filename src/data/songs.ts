@@ -1,4 +1,27 @@
-import { ChartData, DIFFICULTY_CONFIGS, NoteData } from '../types';
+import { ChartData, DIFFICULTY_CONFIGS, NoteData, NoteType } from '../types';
+
+function getNoteTypeForIndex(i: number, density: 'low' | 'normal' | 'high'): NoteType {
+  if (density === 'low') {
+    return i > 0 && i % 6 === 0 ? 'hold' : 'tap';
+  } else if (density === 'normal') {
+    if (i > 0 && i % 5 === 0) return 'hold';
+    if (i > 0 && i % 7 === 0) return 'slide';
+    return 'tap';
+  } else {
+    if (i > 0 && i % 4 === 0) return 'hold';
+    if (i > 0 && i % 6 === 0) return 'slide';
+    return 'tap';
+  }
+}
+
+function getEndLane(startLane: number, i: number): number {
+  const directions = [1, -1, 1, -1];
+  const direction = directions[i % directions.length];
+  let endLane = startLane + direction;
+  if (endLane < 0) endLane = 1;
+  if (endLane > 3) endLane = 2;
+  return endLane;
+}
 
 function generateNotes(lyrics: string, bpm: number, startDelay: number = 1000, density: 'low' | 'normal' | 'high' = 'normal'): NoteData[] {
   const beatInterval = 60000 / bpm;
@@ -16,12 +39,23 @@ function generateNotes(lyrics: string, bpm: number, startDelay: number = 1000, d
     } else {
       lane = (i + Math.floor(i / 3)) % 4;
     }
-    
-    notes.push({
+
+    const noteType = getNoteTypeForIndex(i, density);
+    const note: NoteData = {
       time: startDelay + i * interval,
       lane,
-      lyricChar: chars[i]
-    });
+      lyricChar: chars[i],
+      type: noteType
+    };
+
+    if (noteType === 'hold') {
+      note.duration = beatInterval * (density === 'high' ? 1.5 : 2);
+    } else if (noteType === 'slide') {
+      note.endLane = getEndLane(lane, i);
+      note.duration = beatInterval * 0.8;
+    }
+
+    notes.push(note);
   }
 
   return notes;

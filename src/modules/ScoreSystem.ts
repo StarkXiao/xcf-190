@@ -1,4 +1,4 @@
-import { JudgeResult, ScoreData, SCORE_VALUE } from '../types';
+import { JudgeResult, ScoreData, SCORE_VALUE, NoteType, NOTE_TYPE_SCORE_MULTIPLIER, createInitialNoteTypeStats, NoteTypeStats } from '../types';
 
 export class ScoreSystem {
   private scoreData: ScoreData;
@@ -18,14 +18,16 @@ export class ScoreSystem {
       combo: 0,
       maxCombo: 0,
       score: 0,
-      rating: 'C'
+      rating: 'C',
+      typeStats: createInitialNoteTypeStats()
     };
   }
 
-  public addJudgeResult(result: JudgeResult): void {
+  public addJudgeResult(result: JudgeResult, noteType: NoteType = 'tap'): void {
     this.scoreData[result]++;
+    this.scoreData.typeStats[noteType][result]++;
     this.updateCombo(result);
-    this.updateScore(result);
+    this.updateScore(result, noteType);
     this.updateRating();
   }
 
@@ -40,10 +42,11 @@ export class ScoreSystem {
     }
   }
 
-  private updateScore(result: JudgeResult): void {
+  private updateScore(result: JudgeResult, noteType: NoteType): void {
     const baseScore = SCORE_VALUE[result];
+    const typeMultiplier = NOTE_TYPE_SCORE_MULTIPLIER[noteType];
     const comboBonus = Math.floor(this.scoreData.combo / 10) * 10;
-    this.scoreData.score += baseScore + comboBonus;
+    this.scoreData.score += Math.floor(baseScore * typeMultiplier) + comboBonus;
   }
 
   private updateRating(): void {
@@ -68,12 +71,29 @@ export class ScoreSystem {
     return (weightedScore / maxPossibleScore) * 100;
   }
 
+  public calculateTypeAccuracy(type: NoteType): number {
+    const stats = this.scoreData.typeStats[type];
+    const total = stats.perfect + stats.great + stats.good + stats.miss;
+    if (total === 0) return 100;
+    
+    const weightedScore = 
+      stats.perfect * 100 +
+      stats.great * 70 +
+      stats.good * 30;
+    
+    return (weightedScore / (total * 100)) * 100;
+  }
+
   private getTotalJudged(): number {
     return this.scoreData.perfect + this.scoreData.great + this.scoreData.good + this.scoreData.miss;
   }
 
   public getScore(): ScoreData {
-    return { ...this.scoreData };
+    return { ...this.scoreData, typeStats: { ...this.scoreData.typeStats } };
+  }
+
+  public getTypeStats(): NoteTypeStats {
+    return { ...this.scoreData.typeStats };
   }
 
   public getMaxPossibleScore(): number {

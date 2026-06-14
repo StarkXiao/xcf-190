@@ -1,5 +1,17 @@
 import * as PIXI from 'pixi.js';
-import { ScoreData, CharHitRecord } from '../types';
+import { ScoreData, CharHitRecord, NoteType, NoteTypeStats } from '../types';
+
+const NOTE_TYPE_LABELS: Record<NoteType, string> = {
+  tap: '点击',
+  hold: '长按',
+  slide: '滑键'
+};
+
+const NOTE_TYPE_COLORS: Record<NoteType, number> = {
+  tap: 0x6b9dff,
+  hold: 0x9b59b6,
+  slide: 0xe74c3c
+};
 
 export class ResultScreen {
   private app: PIXI.Application;
@@ -32,6 +44,7 @@ export class ResultScreen {
     
     this.createPoemDisplay(charRecords);
     this.createScoreDisplay(score);
+    this.createTypeStatsDisplay(score.typeStats);
     if (isNewRecord) {
       this.createNewRecordBadge();
     }
@@ -95,11 +108,11 @@ export class ResultScreen {
   private createPoemDisplay(charRecords: CharHitRecord[]): void {
     const poemContainer = new PIXI.Container();
     poemContainer.x = this.app.screen.width / 2;
-    poemContainer.y = 150;
+    poemContainer.y = 120;
     
     const titleStyle = new PIXI.TextStyle({
       fontFamily: 'serif',
-      fontSize: 36,
+      fontSize: 32,
       fill: 0xffd700,
       fontWeight: 'bold',
       stroke: 0x8b4513,
@@ -107,14 +120,26 @@ export class ResultScreen {
       align: 'center'
     });
     
-    const title = new PIXI.Text('~ 告白诗篇 ~', titleStyle);
+    const title = new PIXI.Text('~ 演奏结果 ~', titleStyle);
     title.anchor.set(0.5);
-    title.y = -60;
+    title.y = -50;
     poemContainer.addChild(title);
+    
+    const typeHintStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 14,
+      fill: 0x888888,
+      align: 'center'
+    });
+    
+    const typeHint = new PIXI.Text('[蓝=点击 紫=长按 红=滑键]', typeHintStyle);
+    typeHint.anchor.set(0.5);
+    typeHint.y = -20;
+    poemContainer.addChild(typeHint);
     
     const charsPerLine = 8;
     const charSpacing = 36;
-    const lineHeight = 50;
+    const lineHeight = 46;
     
     for (let i = 0; i < charRecords.length; i++) {
       const record = charRecords[i];
@@ -123,25 +148,26 @@ export class ResultScreen {
       const lineCharCount = Math.min(charsPerLine, charRecords.length - lineIndex * charsPerLine);
       const lineStartX = -(lineCharCount - 1) * charSpacing / 2;
       
+      const typeColor = NOTE_TYPE_COLORS[record.noteType];
       const charStyle = record.hit
         ? new PIXI.TextStyle({
             fontFamily: 'serif',
-            fontSize: 28,
+            fontSize: 26,
             fill: 0xffd700,
             fontWeight: 'bold',
-            stroke: 0x8b4513,
-            strokeThickness: 2,
+            stroke: typeColor,
+            strokeThickness: 3,
             dropShadow: true,
-            dropShadowColor: 0xffd700,
-            dropShadowBlur: 8,
+            dropShadowColor: typeColor,
+            dropShadowBlur: 6,
             align: 'center'
           })
         : new PIXI.TextStyle({
             fontFamily: 'serif',
-            fontSize: 28,
+            fontSize: 26,
             fill: 0x555555,
-            stroke: 0x333333,
-            strokeThickness: 1,
+            stroke: typeColor,
+            strokeThickness: 2,
             align: 'center'
           });
       
@@ -154,7 +180,7 @@ export class ResultScreen {
       charText.scale.set(0);
       poemContainer.addChild(charText);
       
-      this.animateCharReveal(charText, record.hit, 500 + i * 120);
+      this.animateCharReveal(charText, record.hit, 500 + i * 80);
     }
     
     this.container.addChild(poemContainer);
@@ -199,11 +225,11 @@ export class ResultScreen {
   }
 
   private createScoreDisplay(score: ScoreData): void {
-    const startY = this.app.screen.height / 2 + 50;
+    const startY = this.app.screen.height / 2 + 20;
     
     const ratingStyle = new PIXI.TextStyle({
       fontFamily: 'sans-serif',
-      fontSize: 120,
+      fontSize: 100,
       fontWeight: 'bold',
       fill: 0xffd700,
       stroke: 0x000000,
@@ -222,7 +248,7 @@ export class ResultScreen {
     
     const scoreStyle = new PIXI.TextStyle({
       fontFamily: 'sans-serif',
-      fontSize: 32,
+      fontSize: 28,
       fill: 0xffffff,
       stroke: 0x000000,
       strokeThickness: 2,
@@ -232,18 +258,18 @@ export class ResultScreen {
     const scoreText = new PIXI.Text(`得分: ${score.score}`, scoreStyle);
     scoreText.anchor.set(0.5);
     scoreText.x = this.app.screen.width / 2;
-    scoreText.y = startY + 80;
+    scoreText.y = startY + 70;
     scoreText.alpha = 0;
     this.container.addChild(scoreText);
     setTimeout(() => this.animateFadeIn(scoreText), 1200);
     
     const statsContainer = new PIXI.Container();
     statsContainer.x = this.app.screen.width / 2;
-    statsContainer.y = startY + 130;
+    statsContainer.y = startY + 115;
     
     const statStyle = new PIXI.TextStyle({
       fontFamily: 'sans-serif',
-      fontSize: 20,
+      fontSize: 18,
       fill: 0xaaaaaa,
       stroke: 0x000000,
       strokeThickness: 1,
@@ -261,13 +287,144 @@ export class ResultScreen {
     stats.forEach((stat, index) => {
       const text = new PIXI.Text(stat, statStyle);
       text.anchor.set(0.5);
-      text.x = (index - 2) * 100;
+      text.x = (index - 2) * 90;
       text.alpha = 0;
       statsContainer.addChild(text);
       setTimeout(() => this.animateFadeIn(text), 1400 + index * 100);
     });
     
     this.container.addChild(statsContainer);
+  }
+
+  private createTypeStatsDisplay(typeStats: NoteTypeStats): void {
+    const statsY = this.app.screen.height / 2 + 170;
+    
+    const titleStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 20,
+      fontWeight: 'bold',
+      fill: 0xffffff,
+      stroke: 0x000000,
+      strokeThickness: 2,
+      align: 'center'
+    });
+    
+    const title = new PIXI.Text('─ 分型统计 ─', titleStyle);
+    title.anchor.set(0.5);
+    title.x = this.app.screen.width / 2;
+    title.y = statsY;
+    title.alpha = 0;
+    this.container.addChild(title);
+    setTimeout(() => this.animateFadeIn(title), 1800);
+    
+    const types: NoteType[] = ['tap', 'hold', 'slide'];
+    types.forEach((type, index) => {
+      const stats = typeStats[type];
+      const total = stats.perfect + stats.great + stats.good + stats.miss;
+      
+      if (total === 0) return;
+      
+      const container = new PIXI.Container();
+      container.x = this.app.screen.width / 2;
+      container.y = statsY + 40 + index * 55;
+      
+      const typeColor = NOTE_TYPE_COLORS[type];
+      
+      const typeBg = new PIXI.Graphics();
+      typeBg.beginFill(typeColor, 0.15);
+      typeBg.lineStyle(2, typeColor, 0.5);
+      typeBg.drawRoundedRect(-280, -22, 560, 44, 8);
+      typeBg.endFill();
+      container.addChild(typeBg);
+      
+      const typeLabelStyle = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 16,
+        fontWeight: 'bold',
+        fill: typeColor,
+        stroke: 0x000000,
+        strokeThickness: 2,
+        align: 'left'
+      });
+      
+      const typeLabel = new PIXI.Text(`${NOTE_TYPE_LABELS[type]} (${total})`, typeLabelStyle);
+      typeLabel.anchor.set(0, 0.5);
+      typeLabel.x = -270;
+      container.addChild(typeLabel);
+      
+      const accuracy = ((stats.perfect * 100 + stats.great * 70 + stats.good * 30) / (total * 100)) * 100;
+      const accuracyText = `${accuracy.toFixed(1)}%`;
+      const accuracyStyle = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 14,
+        fill: accuracy >= 90 ? 0xffd700 : accuracy >= 70 ? 0x6bff9d : 0xff6b6b,
+        stroke: 0x000000,
+        strokeThickness: 1,
+        align: 'right'
+      });
+      
+      const accuracyLabel = new PIXI.Text(accuracyText, accuracyStyle);
+      accuracyLabel.anchor.set(1, 0.5);
+      accuracyLabel.x = 270;
+      container.addChild(accuracyLabel);
+      
+      const barBg = new PIXI.Graphics();
+      barBg.beginFill(0x333333, 0.8);
+      barBg.drawRoundedRect(-120, -8, 240, 16, 4);
+      barBg.endFill();
+      container.addChild(barBg);
+      
+      const barWidth = 240;
+      const perfectWidth = (stats.perfect / total) * barWidth;
+      const greatWidth = (stats.great / total) * barWidth;
+      const goodWidth = (stats.good / total) * barWidth;
+      
+      let currentX = -120;
+      
+      if (perfectWidth > 0) {
+        const perfectBar = new PIXI.Graphics();
+        perfectBar.beginFill(0xffd700, 1);
+        perfectBar.drawRoundedRect(currentX, -8, perfectWidth, 16, 4);
+        perfectBar.endFill();
+        container.addChild(perfectBar);
+        currentX += perfectWidth;
+      }
+      
+      if (greatWidth > 0) {
+        const greatBar = new PIXI.Graphics();
+        greatBar.beginFill(0x00ff00, 1);
+        greatBar.drawRoundedRect(currentX, -8, greatWidth, 16, 4);
+        greatBar.endFill();
+        container.addChild(greatBar);
+        currentX += greatWidth;
+      }
+      
+      if (goodWidth > 0) {
+        const goodBar = new PIXI.Graphics();
+        goodBar.beginFill(0x00bfff, 1);
+        goodBar.drawRoundedRect(currentX, -8, goodWidth, 16, 4);
+        goodBar.endFill();
+        container.addChild(goodBar);
+      }
+      
+      const statNumbersStyle = new PIXI.TextStyle({
+        fontFamily: 'monospace',
+        fontSize: 12,
+        fill: 0x888888,
+        align: 'left'
+      });
+      
+      const statNumbers = `P:${stats.perfect} G:${stats.great} O:${stats.good} M:${stats.miss}`;
+      const statNumbersLabel = new PIXI.Text(statNumbers, statNumbersStyle);
+      statNumbersLabel.anchor.set(0, 0.5);
+      statNumbersLabel.x = -120;
+      statNumbersLabel.y = 18;
+      container.addChild(statNumbersLabel);
+      
+      container.alpha = 0;
+      this.container.addChild(container);
+      setTimeout(() => this.animateFadeIn(container), 2000 + index * 150);
+    });
   }
 
   private animateRatingIn(rating: PIXI.Text): void {
@@ -314,11 +471,11 @@ export class ResultScreen {
   private createRestartButton(): void {
     const buttonContainer = new PIXI.Container();
     buttonContainer.x = this.app.screen.width / 2;
-    buttonContainer.y = this.app.screen.height - 100;
+    buttonContainer.y = this.app.screen.height - 60;
     
     const buttonBg = new PIXI.Graphics();
     buttonBg.beginFill(0x6b9dff);
-    buttonBg.drawRoundedRect(-100, -30, 200, 60, 10);
+    buttonBg.drawRoundedRect(-100, -28, 200, 56, 10);
     buttonBg.endFill();
     
     buttonBg.interactive = true;
@@ -335,7 +492,7 @@ export class ResultScreen {
     
     const buttonStyle = new PIXI.TextStyle({
       fontFamily: 'sans-serif',
-      fontSize: 24,
+      fontSize: 22,
       fontWeight: 'bold',
       fill: 0xffffff,
       align: 'center'
@@ -348,7 +505,7 @@ export class ResultScreen {
     buttonContainer.alpha = 0;
     this.container.addChild(buttonContainer);
     
-    setTimeout(() => this.animateFadeIn(buttonContainer), 2000);
+    setTimeout(() => this.animateFadeIn(buttonContainer), 2800);
   }
 
   private animateIn(): void {

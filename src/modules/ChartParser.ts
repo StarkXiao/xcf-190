@@ -76,7 +76,8 @@ export class ChartParser {
       notes.push({
         time: startDelay + i * interval,
         lane: i % 4,
-        lyricChar: chars[i]
+        lyricChar: chars[i],
+        type: 'tap'
       });
     }
 

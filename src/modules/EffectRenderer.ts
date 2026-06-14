@@ -1,5 +1,5 @@
 import * as PIXI from 'pixi.js';
-import { JudgeResult, LANE_COUNT } from '../types';
+import { JudgeResult, LANE_COUNT, NoteType } from '../types';
 
 interface Particle {
   sprite: PIXI.Sprite;
@@ -15,12 +15,31 @@ interface JudgeEffect {
   maxLife: number;
 }
 
+interface HoldEffect {
+  glow: PIXI.Graphics;
+  lane: number;
+  startTime: number;
+}
+
+interface SlideTrail {
+  graphics: PIXI.Container;
+  points: { x: number; y: number }[];
+  life: number;
+}
+
 export class EffectRenderer {
   private app: PIXI.Application;
   private container: PIXI.Container;
   private particles: Particle[] = [];
   private judgeEffects: JudgeEffect[] = [];
+  private holdEffects: HoldEffect[] = [];
+  private slideTrails: SlideTrail[] = [];
   private laneColors: number[] = [0xff6b9d, 0x6bff9d, 0x6b9dff, 0xffd93d];
+  private noteTypeColors: Record<NoteType, number> = {
+    tap: 0xffffff,
+    hold: 0x9b59b6,
+    slide: 0xe74c3c
+  };
   private litCharacters: PIXI.Text[] = [];
   private lyricContainer: PIXI.Container;
   private charCount: number = 0;
@@ -36,26 +55,80 @@ export class EffectRenderer {
     this.app.stage.addChild(this.lyricContainer);
   }
 
-  public createPageNote(text: string, lane: number): PIXI.Container {
+  public createPageNote(text: string, lane: number, noteType: NoteType = 'tap', duration?: number, noteSpeed: number = 400): PIXI.Container {
     const noteContainer = new PIXI.Container();
     
-    const page = new PIXI.Graphics();
-    const pageWidth = 80;
-    const pageHeight = 60;
-    
-    page.beginFill(0xffffff, 0.9);
-    page.drawRoundedRect(-pageWidth / 2, -pageHeight / 2, pageWidth, pageHeight, 5);
-    page.endFill();
-    
-    page.lineStyle(2, this.laneColors[lane % LANE_COUNT], 0.8);
-    page.drawRoundedRect(-pageWidth / 2, -pageHeight / 2, pageWidth, pageHeight, 5);
-    
-    noteContainer.addChild(page);
+    if (noteType === 'hold' && duration) {
+      const holdHeight = (duration / 1000) * noteSpeed;
+      const holdBody = new PIXI.Graphics();
+      const pageWidth = 80;
+      
+      holdBody.beginFill(this.noteTypeColors.hold, 0.4);
+      holdBody.drawRoundedRect(-pageWidth / 2, -holdHeight, pageWidth, holdHeight, 5);
+      holdBody.endFill();
+      
+      holdBody.lineStyle(2, this.laneColors[lane % LANE_COUNT], 0.8);
+      holdBody.drawRoundedRect(-pageWidth / 2, -holdHeight, pageWidth, holdHeight, 5);
+      
+      const stripeCount = Math.floor(holdHeight / 30);
+      for (let i = 0; i < stripeCount; i++) {
+        holdBody.beginFill(this.laneColors[lane % LANE_COUNT], 0.2);
+        holdBody.drawRect(-pageWidth / 2 + 5, -holdHeight + i * 30 + 10, pageWidth - 10, 3);
+        holdBody.endFill();
+      }
+      
+      noteContainer.addChild(holdBody);
+      
+      const head = new PIXI.Graphics();
+      head.beginFill(0xffffff, 0.95);
+      head.drawRoundedRect(-pageWidth / 2, -pageWidth * 0.35, pageWidth, pageWidth * 0.7, 5);
+      head.endFill();
+      head.lineStyle(2, this.noteTypeColors.hold, 0.9);
+      head.drawRoundedRect(-pageWidth / 2, -pageWidth * 0.35, pageWidth, pageWidth * 0.7, 5);
+      noteContainer.addChild(head);
+    } else if (noteType === 'slide') {
+      const slideBody = new PIXI.Graphics();
+      const pageWidth = 80;
+      const pageHeight = 60;
+      
+      slideBody.beginFill(this.noteTypeColors.slide, 0.6);
+      slideBody.drawRoundedRect(-pageWidth / 2, -pageHeight / 2, pageWidth, pageHeight, 5);
+      slideBody.endFill();
+      
+      slideBody.lineStyle(3, this.laneColors[lane % LANE_COUNT], 0.9);
+      slideBody.drawRoundedRect(-pageWidth / 2, -pageHeight / 2, pageWidth, pageHeight, 5);
+      
+      const arrow = new PIXI.Graphics();
+      arrow.beginFill(0xffffff, 0.9);
+      arrow.moveTo(0, -8);
+      arrow.lineTo(12, 0);
+      arrow.lineTo(0, 8);
+      arrow.lineTo(3, 0);
+      arrow.lineTo(0, -8);
+      arrow.closePath();
+      arrow.endFill();
+      arrow.x = pageWidth / 4;
+      noteContainer.addChild(slideBody);
+      noteContainer.addChild(arrow);
+    } else {
+      const page = new PIXI.Graphics();
+      const pageWidth = 80;
+      const pageHeight = 60;
+      
+      page.beginFill(0xffffff, 0.9);
+      page.drawRoundedRect(-pageWidth / 2, -pageHeight / 2, pageWidth, pageHeight, 5);
+      page.endFill();
+      
+      page.lineStyle(2, this.laneColors[lane % LANE_COUNT], 0.8);
+      page.drawRoundedRect(-pageWidth / 2, -pageHeight / 2, pageWidth, pageHeight, 5);
+      
+      noteContainer.addChild(page);
+    }
     
     const textStyle = new PIXI.TextStyle({
       fontFamily: 'serif',
-      fontSize: 28,
-      fill: this.laneColors[lane % LANE_COUNT],
+      fontSize: noteType === 'hold' ? 20 : 28,
+      fill: noteType === 'tap' ? this.laneColors[lane % LANE_COUNT] : 0xffffff,
       fontWeight: 'bold',
       align: 'center'
     });
@@ -103,19 +176,71 @@ export class EffectRenderer {
     return graphics;
   }
 
-  public spawnHitEffect(x: number, y: number, lane: number, result: JudgeResult): void {
-    this.spawnParticles(x, y, lane);
-    this.spawnJudgeText(x, y, result);
+  public spawnHitEffect(x: number, y: number, lane: number, result: JudgeResult, noteType: NoteType = 'tap'): void {
+    this.spawnParticles(x, y, lane, noteType);
+    this.spawnJudgeText(x, y, result, noteType);
   }
 
-  private spawnParticles(x: number, y: number, lane: number): void {
-    const particleCount = 12;
+  public spawnHoldEffect(x: number, y: number, lane: number): void {
+    const glow = new PIXI.Graphics();
+    glow.beginFill(this.laneColors[lane % LANE_COUNT], 0.3);
+    glow.drawCircle(0, 0, 60);
+    glow.endFill();
+    
+    glow.x = x;
+    glow.y = y;
+    
+    this.container.addChild(glow);
+    this.holdEffects.push({
+      glow,
+      lane,
+      startTime: Date.now()
+    });
+  }
+
+  public removeHoldEffect(lane: number): void {
+    this.holdEffects = this.holdEffects.filter(effect => {
+      if (effect.lane === lane) {
+        this.container.removeChild(effect.glow);
+        effect.glow.destroy();
+        return false;
+      }
+      return true;
+    });
+  }
+
+  public addSlideTrail(startX: number, endX: number, y: number, lane: number): void {
+    const graphics = new PIXI.Graphics();
+    graphics.lineStyle(4, this.laneColors[lane % LANE_COUNT], 0.8);
+    graphics.moveTo(startX, y);
+    graphics.lineTo(endX, y);
+    
+    const gradient = new PIXI.Graphics();
+    gradient.beginFill(this.laneColors[lane % LANE_COUNT], 0.4);
+    gradient.drawRect(Math.min(startX, endX), y - 8, Math.abs(endX - startX), 16);
+    gradient.endFill();
+    
+    const container = new PIXI.Container();
+    container.addChild(gradient);
+    container.addChild(graphics);
+    
+    this.container.addChild(container);
+    this.slideTrails.push({
+      graphics: container,
+      points: [{ x: startX, y }, { x: endX, y }],
+      life: 30
+    });
+  }
+
+  private spawnParticles(x: number, y: number, lane: number, noteType: NoteType = 'tap'): void {
+    const particleCount = noteType === 'tap' ? 12 : noteType === 'hold' ? 20 : 24;
     const color = this.laneColors[lane % LANE_COUNT];
     
     for (let i = 0; i < particleCount; i++) {
       const graphics = new PIXI.Graphics();
+      const size = noteType === 'tap' ? 3 + Math.random() * 4 : 4 + Math.random() * 6;
       graphics.beginFill(color, 1);
-      graphics.drawCircle(0, 0, 3 + Math.random() * 4);
+      graphics.drawCircle(0, 0, size);
       graphics.endFill();
       
       const texture = this.app.renderer.generateTexture(graphics);
@@ -125,20 +250,20 @@ export class EffectRenderer {
       sprite.y = y;
       
       const angle = (Math.PI * 2 * i) / particleCount + Math.random() * 0.5;
-      const speed = 2 + Math.random() * 4;
+      const speed = noteType === 'tap' ? 2 + Math.random() * 4 : 3 + Math.random() * 5;
       
       this.container.addChild(sprite);
       this.particles.push({
         sprite,
         vx: Math.cos(angle) * speed,
         vy: Math.sin(angle) * speed - 2,
-        life: 60,
-        maxLife: 60
+        life: noteType === 'tap' ? 60 : 80,
+        maxLife: noteType === 'tap' ? 60 : 80
       });
     }
   }
 
-  private spawnJudgeText(x: number, y: number, result: JudgeResult): void {
+  private spawnJudgeText(x: number, y: number, result: JudgeResult, noteType: NoteType = 'tap'): void {
     const colors: Record<JudgeResult, number> = {
       perfect: 0xffd700,
       great: 0x00ff00,
@@ -146,9 +271,15 @@ export class EffectRenderer {
       miss: 0xff4444
     };
     
+    const typeLabels: Record<NoteType, string> = {
+      tap: '',
+      hold: 'HOLD ',
+      slide: 'SLIDE '
+    };
+    
     const style = new PIXI.TextStyle({
       fontFamily: 'sans-serif',
-      fontSize: 32,
+      fontSize: noteType === 'tap' ? 32 : 36,
       fontWeight: 'bold',
       fill: colors[result],
       stroke: 0x000000,
@@ -156,7 +287,8 @@ export class EffectRenderer {
       align: 'center'
     });
     
-    const text = new PIXI.Text(result.toUpperCase(), style);
+    const displayText = typeLabels[noteType] + result.toUpperCase();
+    const text = new PIXI.Text(displayText, style);
     text.anchor.set(0.5);
     text.x = x;
     text.y = y - 50;
@@ -164,8 +296,8 @@ export class EffectRenderer {
     this.container.addChild(text);
     this.judgeEffects.push({
       text,
-      life: 45,
-      maxLife: 45
+      life: noteType === 'tap' ? 45 : 55,
+      maxLife: noteType === 'tap' ? 45 : 55
     });
   }
 
@@ -270,6 +402,25 @@ export class EffectRenderer {
       
       if (effect.life <= 0) {
         this.container.removeChild(effect.text);
+        return false;
+      }
+      return true;
+    });
+
+    this.holdEffects.forEach(effect => {
+      const elapsed = Date.now() - effect.startTime;
+      const pulse = 0.8 + Math.sin(elapsed / 100) * 0.2;
+      effect.glow.scale.set(pulse);
+      effect.glow.alpha = 0.3 + Math.sin(elapsed / 80) * 0.1;
+    });
+
+    this.slideTrails = this.slideTrails.filter(trail => {
+      trail.life--;
+      trail.graphics.alpha = trail.life / 30;
+      
+      if (trail.life <= 0) {
+        this.container.removeChild(trail.graphics);
+        trail.graphics.destroy();
         return false;
       }
       return true;
@@ -403,6 +554,22 @@ export class EffectRenderer {
     this.charCount = 0;
   }
 
+  public clearHoldEffects(): void {
+    this.holdEffects.forEach(effect => {
+      this.container.removeChild(effect.glow);
+      effect.glow.destroy();
+    });
+    this.holdEffects = [];
+  }
+
+  public clearSlideTrails(): void {
+    this.slideTrails.forEach(trail => {
+      this.container.removeChild(trail.graphics);
+      trail.graphics.destroy();
+    });
+    this.slideTrails = [];
+  }
+
   public destroy(): void {
     this.particles.forEach(p => {
       p.sprite.texture.destroy();
@@ -415,6 +582,8 @@ export class EffectRenderer {
     });
     this.judgeEffects = [];
     
+    this.clearHoldEffects();
+    this.clearSlideTrails();
     this.clearLitCharacters();
     this.container.destroy();
     this.lyricContainer.destroy();

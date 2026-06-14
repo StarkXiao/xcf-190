@@ -1,7 +1,18 @@
+export type NoteType = 'tap' | 'hold' | 'slide';
+
 export interface NoteData {
   time: number;
   lane: number;
   lyricChar: string;
+  type: NoteType;
+  duration?: number;
+  endLane?: number;
+}
+
+export interface NoteTypeStats {
+  tap: { perfect: number; great: number; good: number; miss: number };
+  hold: { perfect: number; great: number; good: number; miss: number };
+  slide: { perfect: number; great: number; good: number; miss: number };
 }
 
 export type Difficulty = 'easy' | 'normal' | 'hard';
@@ -59,6 +70,8 @@ export interface JudgeEvent {
   time: number;
   lane: number;
   lyricChar: string;
+  noteType: NoteType;
+  noteId: number;
 }
 
 export interface ScoreData {
@@ -70,12 +83,14 @@ export interface ScoreData {
   maxCombo: number;
   score: number;
   rating: string;
+  typeStats: NoteTypeStats;
 }
 
 export interface CharHitRecord {
   char: string;
   hit: boolean;
   result: JudgeResult;
+  noteType: NoteType;
 }
 
 export interface GameState {
@@ -139,5 +154,17 @@ export const SCORE_VALUE = {
   good: 300,
   miss: 0
 } as const;
+
+export const NOTE_TYPE_SCORE_MULTIPLIER: Record<NoteType, number> = {
+  tap: 1,
+  hold: 1.5,
+  slide: 2
+} as const;
+
+export const createInitialNoteTypeStats = (): NoteTypeStats => ({
+  tap: { perfect: 0, great: 0, good: 0, miss: 0 },
+  hold: { perfect: 0, great: 0, good: 0, miss: 0 },
+  slide: { perfect: 0, great: 0, good: 0, miss: 0 }
+});
 
 export const LANE_COUNT = 4;
