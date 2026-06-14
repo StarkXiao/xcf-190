@@ -9,6 +9,7 @@ import { LyricProgress } from './modules/LyricProgress';
 import { InputConfigManager } from './modules/InputConfigManager';
 import { BookResonance } from './modules/BookResonance';
 import { ChapterUnlockManager } from './modules/ChapterUnlockManager';
+import { StoryChapterSystem } from './modules/StoryChapterSystem';
 import { SongLibrary } from './modules/SongLibrary';
 import { getSongById, SongWithUnlock } from './data/songs';
 import { ChartData, CharHitRecord, Difficulty, JudgeEvent, JudgeResult, LANE_COUNT, NoteData, NoteType, InputConfig, ResonanceState, PracticeConfig, DEFAULT_PRACTICE_CONFIG, BarInfo, PreloadedChart, SongChartEntry, ChartDifficultyConfig } from './types';
@@ -105,6 +106,7 @@ export class Game {
   
   private inputConfigManager: InputConfigManager;
   private songLibrary: SongLibrary;
+  private storyChapterSystem: StoryChapterSystem;
   private removeConfigListener?: () => void;
 
   private practiceConfig: PracticeConfig = { ...DEFAULT_PRACTICE_CONFIG };
@@ -124,6 +126,7 @@ export class Game {
     
     this.inputConfigManager = InputConfigManager.getInstance();
     this.songLibrary = SongLibrary.getInstance();
+    this.storyChapterSystem = StoryChapterSystem.getInstance();
     this.keyMap = this.inputConfigManager.getKeyMap();
     this.swipeThreshold = this.inputConfigManager.getSwipeThreshold();
     this.holdThreshold = this.inputConfigManager.getHoldThreshold();
@@ -1519,6 +1522,13 @@ export class Game {
 
         const unlockResult = ChapterUnlockManager.evaluateAfterScore(songId, difficulty);
         newlyUnlockedSongs = unlockResult.unlockedSongs;
+
+        this.storyChapterSystem.processScoreResult(
+          songId,
+          difficulty,
+          score.rating,
+          accuracy
+        );
       }
       
       ScoreStorage.addHistoryEntry(

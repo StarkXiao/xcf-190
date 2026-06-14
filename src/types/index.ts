@@ -485,3 +485,87 @@ export interface LegacySongWithUnlock extends ChartData {
   unlockCondition: UnlockCondition | null;
   prerequisiteSongId: string | null;
 }
+
+export type EndingType = 'good' | 'normal' | 'bad';
+
+export interface ChapterEnding {
+  type: EndingType;
+  title: string;
+  description: string;
+  poemFragment: string;
+  minAverageRating: string;
+  minAverageAccuracy: number;
+}
+
+export interface ChapterLevel {
+  songId: string;
+  order: number;
+  poemReward: string;
+  poemRewardCondition: {
+    minRating: string;
+    minAccuracy?: number;
+  };
+}
+
+export interface StoryChapter {
+  id: string;
+  title: string;
+  subtitle: string;
+  description: string;
+  order: number;
+  levels: ChapterLevel[];
+  endings: ChapterEnding[];
+  prerequisiteChapterId: string | null;
+  prerequisiteCondition: {
+    minRating: string;
+    minAccuracy?: number;
+  } | null;
+  mapPosition: { x: number; y: number };
+  mapIcon: string;
+}
+
+export interface CollectedPoem {
+  poemLine: string;
+  songId: string;
+  chapterId: string;
+  collectedAt: number;
+  rating: string;
+  accuracy: number;
+}
+
+export interface ChapterProgress {
+  chapterId: string;
+  isUnlocked: boolean;
+  unlockedAt?: number;
+  levelsCompleted: string[];
+  collectedPoems: CollectedPoem[];
+  currentEnding?: EndingType;
+  completionCount: number;
+  bestAverageRating?: string;
+  bestAverageAccuracy?: number;
+}
+
+export interface StoryState {
+  currentChapterId: string;
+  chapters: Record<string, ChapterProgress>;
+  totalCollectedPoems: number;
+  lastPlayedSongId?: string;
+  lastPlayedAt?: number;
+}
+
+export interface StoryStateChangeEvent {
+  type: 'chapter_unlocked' | 'poem_collected' | 'ending_reached' | 'chapter_completed' | 'level_completed';
+  chapterId: string;
+  data?: {
+    songId?: string;
+    endingType?: EndingType;
+    poemLine?: string;
+    rating?: string;
+    accuracy?: number;
+  };
+  timestamp: number;
+}
+
+export type StoryStateChangeListener = (event: StoryStateChangeEvent) => void;
+
+export const STORY_STATE_STORAGE_KEY = 'floating-island-bookstore-story-state';
