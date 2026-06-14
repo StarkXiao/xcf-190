@@ -46,6 +46,7 @@ export class Game {
   private pausedTime: number = 0;
   private pauseStartTime: number = 0;
   private charRecords: CharHitRecord[] = [];
+  private gameEndTimer?: number;
   
   private pauseMenu?: PIXI.Container;
   private pauseButton?: PIXI.Container;
@@ -488,8 +489,10 @@ export class Game {
   }
 
   private checkGameEnd(): void {
+    if (this.gameEndTimer) return;
     if (this.rhythmJudge.isAllNotesJudged() && this.scoreSystem.isAllJudged()) {
-      setTimeout(() => {
+      this.gameEndTimer = window.setTimeout(() => {
+        this.gameEndTimer = undefined;
         this.endGame();
       }, 1000);
     }
@@ -531,7 +534,15 @@ export class Game {
     this.startTime = performance.now();
   }
 
+  private clearGameEndTimer(): void {
+    if (this.gameEndTimer !== undefined) {
+      clearTimeout(this.gameEndTimer);
+      this.gameEndTimer = undefined;
+    }
+  }
+
   private resetGame(): void {
+    this.clearGameEndTimer();
     this.currentTime = 0;
     this.pausedTime = 0;
     this.pauseStartTime = 0;
@@ -556,6 +567,7 @@ export class Game {
   private pauseGame(): void {
     if (this.gameState !== 'playing') return;
     
+    this.clearGameEndTimer();
     this.gameState = 'paused';
     this.pauseStartTime = performance.now();
     this.showPauseMenu();
@@ -568,6 +580,8 @@ export class Game {
     this.pauseStartTime = 0;
     this.gameState = 'playing';
     this.hidePauseMenu();
+    
+    this.checkGameEnd();
   }
 
   private showPauseMenu(): void {
@@ -608,6 +622,7 @@ export class Game {
   }
 
   private endGame(): void {
+    this.clearGameEndTimer();
     this.gameState = 'result';
     this.gameContainer.visible = false;
     
