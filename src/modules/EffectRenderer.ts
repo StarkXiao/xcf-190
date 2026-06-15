@@ -85,7 +85,9 @@ export class EffectRenderer {
   };
   private litCharacters: PIXI.Text[] = [];
   private lyricContainer: PIXI.Container;
+  private lyricFrameContainer: PIXI.Container;
   private charCount: number = 0;
+  private trackEffectConfig?: import('../types').TrackEffect;
   private atmosphere: AtmosphereState;
   private resonance: ResonanceEffect;
   private resonanceIntensity: number = 0;
@@ -118,15 +120,20 @@ export class EffectRenderer {
     this.burstLayer = new PIXI.Container();
     this.app.stage.addChild(this.burstLayer);
     
+    this.lyricFrameContainer = new PIXI.Container();
+    this.lyricFrameContainer.x = this.app.screen.width / 2;
+    this.lyricFrameContainer.y = 100;
+    this.app.stage.addChild(this.lyricFrameContainer);
+
     this.lyricContainer = new PIXI.Container();
-    this.lyricContainer.x = this.app.screen.width / 2;
-    this.lyricContainer.y = 100;
-    this.app.stage.addChild(this.lyricContainer);
+    this.lyricFrameContainer.addChild(this.lyricContainer);
 
     if (skinRenderer) {
       this.skinRenderer = skinRenderer;
       this.useSkinRendering = true;
       this.updateColorsFromSkin();
+      this.updateTrackEffectConfig();
+      this.refreshLyricFrame();
     }
 
     this.precacheSharedTextures();
@@ -138,12 +145,16 @@ export class EffectRenderer {
     this.skinRenderer = skinRenderer;
     this.useSkinRendering = true;
     this.updateColorsFromSkin();
+    this.updateTrackEffectConfig();
+    this.refreshLyricFrame();
   }
 
   public setUseSkinRendering(enabled: boolean): void {
     this.useSkinRendering = enabled;
     if (enabled && this.skinRenderer) {
       this.updateColorsFromSkin();
+      this.updateTrackEffectConfig();
+      this.refreshLyricFrame();
     }
   }
 
@@ -158,6 +169,42 @@ export class EffectRenderer {
       hold: this.hexToNumber('#9b59b6'),
       slide: this.hexToNumber('#e74c3c')
     };
+  }
+
+  private updateTrackEffectConfig(): void {
+    if (!this.skinRenderer) return;
+    this.trackEffectConfig = this.skinRenderer.getTrackEffect();
+  }
+
+  public refreshLyricFrame(): void {
+    if (!this.skinRenderer || !this.useSkinRendering) {
+      const existingFrame = this.lyricFrameContainer.getChildAt(0);
+      if (existingFrame !== this.lyricContainer) {
+        this.lyricFrameContainer.removeChildAt(0);
+      }
+      return;
+    }
+
+    const existingChildren = this.lyricFrameContainer.children.slice();
+    existingChildren.forEach(child => {
+      if (child !== this.lyricContainer) {
+        this.lyricFrameContainer.removeChild(child);
+        (child as PIXI.Container).destroy({ children: true });
+      }
+    });
+
+    const charsPerLine = 8;
+    const charSpacing = 34;
+    const lineHeight = 42;
+    const padding = 40;
+    const maxLines = 3;
+    const frameWidth = charsPerLine * charSpacing + padding * 2;
+    const frameHeight = maxLines * lineHeight + padding * 2;
+
+    const frame = this.skinRenderer.createPoemFrameContainer(frameWidth, frameHeight);
+    frame.x = -frameWidth / 2;
+    frame.y = -padding;
+    this.lyricFrameContainer.addChildAt(frame, 0);
   }
 
   private hexToNumber(hex: string): number {
@@ -793,7 +840,16 @@ export class EffectRenderer {
 
   public spawnHoldEffect(x: number, y: number, lane: number): void {
     const glow = new PIXI.Graphics();
-    glow.beginFill(this.laneColors[lane % LANE_COUNT], 0.3);
+    
+    let holdColor = this.laneColors[lane % LANE_COUNT];
+    let holdAlpha = 0.3;
+    
+    if (this.trackEffectConfig && this.useSkinRendering) {
+      holdColor = this.hexToNumber(this.trackEffectConfig.holdEffect.color);
+      holdAlpha = 0.5;
+    }
+    
+    glow.beginFill(holdColor, holdAlpha);
     glow.drawCircle(0, 0, 60);
     glow.endFill();
     
@@ -820,13 +876,25 @@ export class EffectRenderer {
   }
 
   public addSlideTrail(startX: number, endX: number, y: number, lane: number): void {
+    let trailColor = this.laneColors[lane % LANE_COUNT];
+    let trailWidth = 4;
+    let trailAlpha = 0.8;
+    let fillAlpha = 0.4;
+    
+    if (this.trackEffectConfig && this.useSkinRendering) {
+      trailColor = this.hexToNumber(this.trackEffectConfig.slideEffect.trailColor);
+      trailWidth = this.trackEffectConfig.slideEffect.trailWidth;
+      trailAlpha = this.trackEffectConfig.slideEffect.trailAlpha;
+      fillAlpha = this.trackEffectConfig.slideEffect.trailAlpha * 0.6;
+    }
+    
     const graphics = new PIXI.Graphics();
-    graphics.lineStyle(4, this.laneColors[lane % LANE_COUNT], 0.8);
+    graphics.lineStyle(trailWidth, trailColor, trailAlpha);
     graphics.moveTo(startX, y);
     graphics.lineTo(endX, y);
     
     const gradient = new PIXI.Graphics();
-    gradient.beginFill(this.laneColors[lane % LANE_COUNT], 0.4);
+    gradient.beginFill(trailColor, fillAlpha);
     gradient.drawRect(Math.min(startX, endX), y - 8, Math.abs(endX - startX), 16);
     gradient.endFill();
     
@@ -844,35 +912,48 @@ export class EffectRenderer {
 
   private spawnParticles(x: number, y: number, lane: number, noteType: NoteType = 'tap'): void {
     const resonanceBoost = 1 + this.resonanceIntensity * 0.8;
-    const particleCount = Math.floor((noteType === 'tap' ? 12 : noteType === 'hold' ? 20 : 24) * resonanceBoost);
+    
+    let particleCount = Math.floor((noteType === 'tap' ? 12 : noteType === 'hold' ? 20 : 24) * resonanceBoost);
     let color = this.laneColors[lane % LANE_COUNT];
+    let glowColor = 0xffd700;
+    let particleColors: number[] = [];
+    let [minSize, maxSize] = noteType === 'tap' ? [3, 7] : [4, 10];
+    let baseSpeedMin = noteType === 'tap' ? 2 : 3;
+    let baseSpeedMax = noteType === 'tap' ? 6 : 8;
     
     if (this.useSkinRendering && this.skinRenderer) {
       color = this.skinRenderer.getHitParticleColor();
+      glowColor = this.skinRenderer.getComboParticleColor();
+      
+      if (this.trackEffectConfig) {
+        particleCount = Math.floor(this.trackEffectConfig.hitEffect.particleCount * resonanceBoost);
+        particleColors = this.trackEffectConfig.hitEffect.particleColors.map(c => this.hexToNumber(c));
+        [minSize, maxSize] = this.trackEffectConfig.hitEffect.particleSize;
+        baseSpeedMin = this.trackEffectConfig.hitEffect.particleSpeed * 0.5;
+        baseSpeedMax = this.trackEffectConfig.hitEffect.particleSpeed;
+      }
     }
     
     const baseTex = this.particleBaseTexture || PIXI.Texture.WHITE;
     const glowTex = this.particleGlowTexture || PIXI.Texture.WHITE;
 
     for (let i = 0; i < particleCount; i++) {
-      const baseSize = noteType === 'tap' ? 3 + Math.random() * 4 : 4 + Math.random() * 6;
+      const baseSize = minSize + Math.random() * (maxSize - minSize);
       const size = baseSize * (1 + this.resonanceIntensity * 0.5);
       const scale = size / 8;
+      const particleColor = particleColors.length > 0 
+        ? particleColors[i % particleColors.length] 
+        : color;
 
       if (this.resonanceIntensity > 0.3) {
         const glow = this.acquireParticleSprite(glowTex);
-        let glowColor = 0xffd700;
-        if (this.useSkinRendering && this.skinRenderer) {
-          glowColor = this.skinRenderer.getComboParticleColor();
-        }
         glow.tint = glowColor;
         glow.alpha = this.resonanceIntensity * 0.5;
         glow.scale.set(scale * 1.5);
         glow.x = x;
         glow.y = y;
         const angle = (Math.PI * 2 * i) / particleCount + Math.random() * 0.5;
-        const baseSpeed = noteType === 'tap' ? 2 + Math.random() * 4 : 3 + Math.random() * 5;
-        const speed = baseSpeed * resonanceBoost;
+        const speed = (baseSpeedMin + Math.random() * (baseSpeedMax - baseSpeedMin)) * resonanceBoost;
         const useBurstLayer = this.layerState.currentZBoost > 0.3;
         if (useBurstLayer) {
           this.burstLayer.addChild(glow);
@@ -889,15 +970,14 @@ export class EffectRenderer {
       }
 
       const sprite = this.acquireParticleSprite(baseTex);
-      sprite.tint = color;
+      sprite.tint = particleColor;
       sprite.alpha = 1;
       sprite.scale.set(scale);
       sprite.x = x;
       sprite.y = y;
 
       const angle = (Math.PI * 2 * i) / particleCount + Math.random() * 0.5;
-      const baseSpeed = noteType === 'tap' ? 2 + Math.random() * 4 : 3 + Math.random() * 5;
-      const speed = baseSpeed * resonanceBoost;
+      const speed = (baseSpeedMin + Math.random() * (baseSpeedMax - baseSpeedMin)) * resonanceBoost;
 
       const useBurstLayer = this.layerState.currentZBoost > 0.3;
       if (useBurstLayer) {
@@ -1290,6 +1370,12 @@ export class EffectRenderer {
     this.resetAtmosphere();
     this.resetResonance();
 
+    if (this.useSkinRendering && this.skinRenderer) {
+      this.updateColorsFromSkin();
+      this.updateTrackEffectConfig();
+      this.refreshLyricFrame();
+    }
+
     this.releaseCachedTexture('ambient-particle');
     this.releaseCachedTexture('book-page');
     this.releaseCachedTexture('particle-base');
@@ -1338,6 +1424,6 @@ export class EffectRenderer {
     this.clearLitCharacters();
     this.container.destroy();
     this.burstLayer.destroy();
-    this.lyricContainer.destroy();
+    this.lyricFrameContainer.destroy();
   }
 }

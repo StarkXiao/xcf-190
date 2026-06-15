@@ -240,7 +240,7 @@ export class Game {
     
     this.skinRenderer = new SkinRenderer(this.app);
     this.effectRenderer = new EffectRenderer(this.app, this.skinRenderer);
-    this.resultScreen = new ResultScreen(this.app);
+    this.resultScreen = new ResultScreen(this.app, this.skinRenderer);
     this.startScreen = new StartScreen(this.app);
     this.lyricProgress = new LyricProgress(this.app);
     this.chapterMapView = new ChapterMapView(this.app);
@@ -1353,9 +1353,20 @@ export class Game {
   }
 
   private refreshSkinRendering(): void {
+    this.effectRenderer.setUseSkinRendering(true);
+    this.effectRenderer.refreshLyricFrame();
+    
     if (this.gameState === 'playing' || this.gameState === 'paused') {
       this.setupUI();
       this.drainNoteSpritePool();
+      
+      const newComboDisplay = this.effectRenderer.createComboDisplay();
+      newComboDisplay.x = this.comboDisplay.x;
+      newComboDisplay.y = this.comboDisplay.y;
+      this.uiLayer.removeChild(this.comboDisplay);
+      this.comboDisplay.destroy();
+      this.comboDisplay = newComboDisplay;
+      this.uiLayer.addChild(this.comboDisplay);
     }
   }
 

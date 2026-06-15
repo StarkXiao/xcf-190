@@ -1,11 +1,12 @@
 import * as PIXI from 'pixi.js';
-import { ScoreData, CharHitRecord, NoteType, NoteTypeStats, Difficulty, BestScore, StoryStateChangeEvent, JudgeEvent, CosmeticItem } from '../types';
+import { ScoreData, CharHitRecord, NoteType, NoteTypeStats, Difficulty, BestScore, StoryStateChangeEvent, JudgeEvent, CosmeticItem, ThemeSkin, PoemFrame } from '../types';
 import { ScoreStorage } from './ScoreStorage';
 import { SongWithUnlock } from '../data/songs';
 import { StoryChapterSystem } from './StoryChapterSystem';
 import { SeasonSystem } from './SeasonSystem';
 import { FriendBattle } from './FriendBattle';
 import { SkinSystem } from './SkinSystem';
+import { SkinRenderer } from './SkinRenderer';
 
 const NOTE_TYPE_LABELS: Record<NoteType, string> = {
   tap: '点击',
@@ -36,6 +37,7 @@ const RATING_COLORS: Record<string, number> = {
 export class ResultScreen {
   private app: PIXI.Application;
   private container: PIXI.Container;
+  private skinRenderer?: SkinRenderer;
   private onRestartCallback?: () => void;
   private onBackToStartCallback?: () => void;
 
@@ -52,13 +54,26 @@ export class ResultScreen {
   private readonly TOTAL_ANIMATION_DURATION = 3200;
   private readonly TRANSITION_OUT_DURATION = 400;
 
-  constructor(app: PIXI.Application) {
+  constructor(app: PIXI.Application, skinRenderer?: SkinRenderer) {
     this.app = app;
+    this.skinRenderer = skinRenderer;
     this.container = new PIXI.Container();
     this.container.visible = false;
     this.miniLeaderboardPanel = new PIXI.Container();
     this.battleComparisonPanel = new PIXI.Container();
     this.app.stage.addChild(this.container);
+  }
+
+  private getThemeColors(): ThemeSkin['colors'] {
+    if (this.skinRenderer) {
+      return this.skinRenderer.getThemeColors();
+    }
+    const defaultConfig = SkinSystem.getCurrentSkinConfig();
+    return defaultConfig.theme.colors;
+  }
+
+  private hexToNumber(hex: string): number {
+    return parseInt(hex.replace('#', ''), 16);
   }
 
   public show(
@@ -92,11 +107,22 @@ export class ResultScreen {
     this.miniLeaderboardVisible = false;
     this.miniLeaderboardPanel.removeChildren();
 
+    const themeColors = this.getThemeColors();
+    const bgBaseColor = this.hexToNumber(themeColors.background);
+    const uiAccentColor = this.hexToNumber(themeColors.uiAccent);
+
     const mask = new PIXI.Graphics();
-    mask.beginFill(0x000000, 0.85);
+    mask.beginFill(bgBaseColor, 0.92);
     mask.drawRect(0, 0, this.app.screen.width, this.app.screen.height);
     mask.endFill();
+
+    const overlay = new PIXI.Graphics();
+    overlay.beginFill(uiAccentColor, 0.04);
+    overlay.drawRect(0, 0, this.app.screen.width, this.app.screen.height);
+    overlay.endFill();
+
     this.container.addChild(mask);
+    this.container.addChild(overlay);
 
     let seasonResult = null;
     if (!isPractice && songId && difficulty) {
@@ -1148,19 +1174,56 @@ export class ResultScreen {
     poemContainer.x = this.app.screen.width / 2;
     poemContainer.y = 110;
 
+    let poemFrameStyle: PoemFrame['frameStyle'];
+    let poemTextStyle: PoemFrame['textStyle'];
+    if (this.skinRenderer) {
+      poemFrameStyle = this.skinRenderer.getPoemFrameStyle();
+      poemTextStyle = this.skinRenderer.getPoemTextStyle();
+    } else {
+      const defaultConfig = SkinSystem.getCurrentSkinConfig();
+      poemFrameStyle = defaultConfig.poemFrame.frameStyle;
+      poemTextStyle = defaultConfig.poemFrame.textStyle;
+    }
+
+    const charsPerLine = 8;
+    const charSpacing = 34;
+    const lineHeight = 42;
+    const padding = 36;
+    const maxLines = Math.ceil(charRecords.length / charsPerLine);
+    const titleHeight = 50;
+    const frameWidth = charsPerLine * charSpacing + padding * 2;
+    const frameHeight = maxLines * lineHeight + padding + titleHeight;
+
+    if (this.skinRenderer) {
+      const frameBg = this.skinRenderer.createPoemFrameContainer(frameWidth, frameHeight);
+      frameBg.x = -frameWidth / 2;
+      frameBg.y = -titleHeight / 2 - padding / 2;
+      poemContainer.addChild(frameBg);
+    } else {
+      const frameBg = new PIXI.Graphics();
+      frameBg.beginFill(this.hexToNumber(poemFrameStyle.backgroundColor), poemFrameStyle.backgroundAlpha);
+      frameBg.drawRoundedRect(-frameWidth / 2, -titleHeight / 2 - padding / 2, frameWidth, frameHeight, poemFrameStyle.cornerRadius);
+      frameBg.endFill();
+      frameBg.lineStyle(poemFrameStyle.borderWidth, this.hexToNumber(poemFrameStyle.borderColor), 1);
+      frameBg.drawRoundedRect(-frameWidth / 2, -titleHeight / 2 - padding / 2, frameWidth, frameHeight, poemFrameStyle.cornerRadius);
+      poemContainer.addChild(frameBg);
+    }
+
+    const titleColor = this.hexToNumber(poemTextStyle.color);
+    const titleStroke = poemTextStyle.strokeColor ? this.hexToNumber(poemTextStyle.strokeColor) : 0x8b4513;
     const titleStyle = new PIXI.TextStyle({
-      fontFamily: 'serif',
+      fontFamily: poemTextStyle.fontFamily,
       fontSize: 28,
-      fill: 0xffd700,
+      fill: titleColor,
       fontWeight: 'bold',
-      stroke: 0x8b4513,
-      strokeThickness: 2,
+      stroke: titleStroke,
+      strokeThickness: poemTextStyle.strokeWidth || 2,
       align: 'center'
     });
 
     const title = new PIXI.Text('~ 演奏结果 ~', titleStyle);
     title.anchor.set(0.5);
-    title.y = -40;
+    title.y = -titleHeight / 2 + 10;
     poemContainer.addChild(title);
 
     const typeHintStyle = new PIXI.TextStyle({
@@ -1172,12 +1235,11 @@ export class ResultScreen {
 
     const typeHint = new PIXI.Text('[蓝=点击 紫=长按 红=滑键]', typeHintStyle);
     typeHint.anchor.set(0.5);
-    typeHint.y = -14;
+    typeHint.y = -titleHeight / 2 + 34;
     poemContainer.addChild(typeHint);
 
-    const charsPerLine = 8;
-    const charSpacing = 34;
-    const lineHeight = 42;
+    const textColor = this.hexToNumber(poemTextStyle.color);
+    const textShadowColor = poemTextStyle.shadowColor ? this.hexToNumber(poemTextStyle.shadowColor) : 0xffd700;
 
     for (let i = 0; i < charRecords.length; i++) {
       const record = charRecords[i];
@@ -1189,20 +1251,20 @@ export class ResultScreen {
       const typeColor = NOTE_TYPE_COLORS[record.noteType];
       const charStyle = record.hit
         ? new PIXI.TextStyle({
-            fontFamily: 'serif',
-            fontSize: 24,
-            fill: 0xffd700,
+            fontFamily: poemTextStyle.fontFamily,
+            fontSize: poemTextStyle.fontSize,
+            fill: textColor,
             fontWeight: 'bold',
             stroke: typeColor,
             strokeThickness: 3,
-            dropShadow: true,
-            dropShadowColor: typeColor,
-            dropShadowBlur: 6,
+            dropShadow: poemTextStyle.shadow || true,
+            dropShadowColor: textShadowColor,
+            dropShadowBlur: poemTextStyle.shadowBlur || 6,
             align: 'center'
           })
         : new PIXI.TextStyle({
-            fontFamily: 'serif',
-            fontSize: 24,
+            fontFamily: poemTextStyle.fontFamily,
+            fontSize: poemTextStyle.fontSize,
             fill: 0x555555,
             stroke: typeColor,
             strokeThickness: 2,
@@ -1213,7 +1275,7 @@ export class ResultScreen {
       const charText = new PIXI.Text(displayChar, charStyle);
       charText.anchor.set(0.5);
       charText.x = lineStartX + colIndex * charSpacing;
-      charText.y = lineIndex * lineHeight;
+      charText.y = lineIndex * lineHeight + titleHeight / 2;
       charText.alpha = 0;
       charText.scale.set(0);
       poemContainer.addChild(charText);
