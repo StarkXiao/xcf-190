@@ -10,18 +10,33 @@ import {
   RECOVERY_CHECKPOINTS_KEY,
   SAVE_VERSION_INITIAL,
   MAX_RECOVERY_CHECKPOINTS,
+  MIGRATION_CODE_EXPIRY_HOURS,
   BestScoreRecord,
   ScoreHistory,
-  Difficulty
+  Difficulty,
+  BestScore
 } from '../types';
 import { AccountSystem } from './AccountSystem';
 import { ScoreStorage } from './ScoreStorage';
+
+const BEST_STORAGE_KEY = 'floating-island-bookstore-best-scores';
+const HISTORY_STORAGE_KEY = 'floating-island-bookstore-score-history';
+const MIGRATION_CODES_CLOUD_KEY = 'floating-island-bookstore-migration-codes-cloud';
 
 export class CloudSaveSystem {
   private static localCache: LocalSaveCache | null = null;
   private static autoSyncEnabled: boolean = true;
   private static syncInProgress: boolean = false;
   private static pendingSyncTimeout: number | null = null;
+  private static currentAccountId: string | null = null;
+
+  private static getAccountCacheKey(accountId: string): string {
+    return `${LOCAL_SAVE_CACHE_KEY}_${accountId}`;
+  }
+
+  private static getAccountCheckpointsKey(accountId: string): string {
+    return `${RECOVERY_CHECKPOINTS_KEY}_${accountId}`;
+  }
 
   private static generateChecksum(data: any): string {
     const str = JSON.stringify(data);
@@ -34,12 +49,11 @@ export class CloudSaveSystem {
     return Math.abs(hash).toString(36);
   }
 
-  private static createInitialSaveData(): CloudSaveData {
-    const account = AccountSystem.getCurrentAccount();
+  private static createInitialSaveData(accountId: string): CloudSaveData {
     const deviceId = AccountSystem.getCurrentDeviceId();
     
     return {
-      accountId: account?.accountId || '',
+      accountId,
       saveVersion: {
         version: SAVE_VERSION_INITIAL,
         timestamp: Date.now(),
@@ -54,13 +68,22 @@ export class CloudSaveSystem {
   }
 
   private static loadLocalCache(): void {
+    const account = AccountSystem.getCurrentAccount();
+    if (!account) {
+      this.localCache = null;
+      return;
+    }
+
+    const cacheKey = this.getAccountCacheKey(account.accountId);
+    this.currentAccountId = account.accountId;
+
     try {
-      const data = localStorage.getItem(LOCAL_SAVE_CACHE_KEY);
+      const data = localStorage.getItem(cacheKey);
       if (data) {
         this.localCache = JSON.parse(data);
       } else {
         this.localCache = {
-          saveData: this.createInitialSaveData(),
+          saveData: this.createInitialSaveData(account.accountId),
           lastSyncedAt: 0,
           syncStatus: 'idle',
           pendingChanges: [],
@@ -70,7 +93,7 @@ export class CloudSaveSystem {
     } catch (e) {
       console.error('Failed to load local save cache:', e);
       this.localCache = {
-        saveData: this.createInitialSaveData(),
+        saveData: this.createInitialSaveData(account.accountId),
         lastSyncedAt: 0,
         syncStatus: 'idle',
         pendingChanges: [],
@@ -80,17 +103,20 @@ export class CloudSaveSystem {
   }
 
   private static saveLocalCache(): void {
-    if (!this.localCache) return;
+    if (!this.localCache || !this.currentAccountId) return;
     try {
-      localStorage.setItem(LOCAL_SAVE_CACHE_KEY, JSON.stringify(this.localCache));
+      const cacheKey = this.getAccountCacheKey(this.currentAccountId);
+      localStorage.setItem(cacheKey, JSON.stringify(this.localCache));
     } catch (e) {
       console.error('Failed to save local cache:', e);
     }
   }
 
   private static loadRecoveryCheckpoints(): RecoveryCheckpoint[] {
+    if (!this.currentAccountId) return [];
     try {
-      const data = localStorage.getItem(RECOVERY_CHECKPOINTS_KEY);
+      const key = this.getAccountCheckpointsKey(this.currentAccountId);
+      const data = localStorage.getItem(key);
       return data ? JSON.parse(data) : [];
     } catch (e) {
       console.error('Failed to load recovery checkpoints:', e);
@@ -99,19 +125,33 @@ export class CloudSaveSystem {
   }
 
   private static saveRecoveryCheckpoints(checkpoints: RecoveryCheckpoint[]): void {
+    if (!this.currentAccountId) return;
     try {
-      localStorage.setItem(RECOVERY_CHECKPOINTS_KEY, JSON.stringify(checkpoints));
+      const key = this.getAccountCheckpointsKey(this.currentAccountId);
+      localStorage.setItem(key, JSON.stringify(checkpoints));
     } catch (e) {
       console.error('Failed to save recovery checkpoints:', e);
     }
   }
 
   public static initialize(): void {
+    this.switchToCurrentAccount();
+  }
+
+  public static switchToCurrentAccount(): void {
+    const account = AccountSystem.getCurrentAccount();
+    if (!account) return;
+
+    if (this.pendingSyncTimeout !== null) {
+      clearTimeout(this.pendingSyncTimeout);
+      this.pendingSyncTimeout = null;
+    }
+
     this.loadLocalCache();
     this.loadFromScoreStorage();
-    
-    if (this.autoSyncEnabled && navigator.onLine) {
-      this.syncWithCloud('local_first');
+
+    if (this.autoSyncEnabled && navigator.onLine && account.accountType === 'registered') {
+      this.syncWithCloud('merge');
     }
   }
 
@@ -127,24 +167,21 @@ export class CloudSaveSystem {
     this.saveLocalCache();
   }
 
-  private static async syncToScoreStorage(): Promise<void> {
+  private static syncToScoreStorage(): void {
     if (!this.localCache) return;
 
-    const { bestScores } = this.localCache.saveData;
+    const { bestScores, scoreHistory } = this.localCache.saveData;
 
-    for (const songId of Object.keys(bestScores)) {
-      for (const difficulty of ['easy', 'normal', 'hard'] as Difficulty[]) {
-        const score = bestScores[songId][difficulty];
-        if (score) {
-          const currentBest = ScoreStorage.getBestScore(songId, difficulty);
-          if (!currentBest || score.score > currentBest.score) {
-            localStorage.setItem(
-              'floating-island-bookstore-best-scores-temp-' + songId + '-' + difficulty,
-              JSON.stringify(score)
-            );
-          }
-        }
-      }
+    try {
+      localStorage.setItem(BEST_STORAGE_KEY, JSON.stringify(bestScores));
+    } catch (e) {
+      console.error('Failed to sync best scores to storage:', e);
+    }
+
+    try {
+      localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(scoreHistory));
+    } catch (e) {
+      console.error('Failed to sync score history to storage:', e);
     }
   }
 
@@ -181,18 +218,15 @@ export class CloudSaveSystem {
     }
     
     this.pendingSyncTimeout = window.setTimeout(() => {
-      this.syncWithCloud('local_first');
+      this.syncWithCloud('merge');
     }, 5000);
   }
 
-  private static async fetchCloudSave(): Promise<CloudSaveData | null> {
+  private static async fetchCloudSave(accountId: string): Promise<CloudSaveData | null> {
     try {
       await new Promise(resolve => setTimeout(resolve, 300));
       
-      const account = AccountSystem.getCurrentAccount();
-      if (!account) return null;
-
-      const cloudKey = 'cloud_save_' + account.accountId;
+      const cloudKey = 'cloud_save_' + accountId;
       const stored = localStorage.getItem(cloudKey);
       
       if (stored) {
@@ -209,10 +243,7 @@ export class CloudSaveSystem {
     try {
       await new Promise(resolve => setTimeout(resolve, 300));
       
-      const account = AccountSystem.getCurrentAccount();
-      if (!account) throw new Error('Not logged in');
-
-      const cloudKey = 'cloud_save_' + account.accountId;
+      const cloudKey = 'cloud_save_' + data.accountId;
       localStorage.setItem(cloudKey, JSON.stringify(data));
     } catch (e) {
       throw new Error('Failed to push cloud save');
@@ -262,7 +293,7 @@ export class CloudSaveSystem {
           id: 'favorites',
           field: 'favorites',
           localValue: local.favorites,
-          cloudValue: local.favorites,
+          cloudValue: cloud.favorites,
           resolved: false
         });
       }
@@ -344,11 +375,12 @@ export class CloudSaveSystem {
         conflict.resolved = true;
         conflict.resolution = 'merge';
       } else if (conflict.field === 'favorites') {
-        if (strategy === 'local_first') {
-          merged.favorites = local.favorites;
+        if (strategy === 'local_first' || strategy === 'merge') {
+          const mergedFavorites = Array.from(new Set([...local.favorites, ...cloud.favorites]));
+          merged.favorites = mergedFavorites;
           conflict.resolved = true;
-          conflict.resolution = 'local_first';
-          conflict.resolvedValue = local.favorites;
+          conflict.resolution = strategy === 'merge' ? 'merge' : 'local_first';
+          conflict.resolvedValue = mergedFavorites;
         } else if (strategy === 'cloud_first') {
           merged.favorites = cloud.favorites;
           conflict.resolved = true;
@@ -364,7 +396,7 @@ export class CloudSaveSystem {
   }
 
   public static async syncWithCloud(
-    strategy: ConflictResolutionStrategy = 'local_first'
+    strategy: ConflictResolutionStrategy = 'merge'
   ): Promise<SyncResult> {
     if (this.syncInProgress) {
       return {
@@ -378,6 +410,17 @@ export class CloudSaveSystem {
 
     if (!this.localCache) {
       this.loadLocalCache();
+    }
+
+    const account = AccountSystem.getCurrentAccount();
+    if (!account) {
+      return {
+        success: false,
+        status: 'error',
+        mergedFields: [],
+        conflicts: [],
+        error: 'Not logged in'
+      };
     }
 
     if (!navigator.onLine) {
@@ -399,7 +442,7 @@ export class CloudSaveSystem {
     try {
       this.createRecoveryCheckpoint('Pre-sync backup');
 
-      const cloudSave = await this.fetchCloudSave();
+      const cloudSave = await this.fetchCloudSave(account.accountId);
 
       if (!cloudSave) {
         await this.pushCloudSave(this.localCache!.saveData);
@@ -445,7 +488,7 @@ export class CloudSaveSystem {
 
       await this.pushCloudSave(merged);
 
-      await this.syncToScoreStorage();
+      this.syncToScoreStorage();
 
       this.localCache!.lastSyncedAt = Date.now();
       this.localCache!.syncStatus = 'success';
@@ -553,6 +596,22 @@ export class CloudSaveSystem {
       conflict.resolvedValue = conflict.localValue;
     } else if (strategy === 'cloud_first') {
       conflict.resolvedValue = conflict.cloudValue;
+    } else if (strategy === 'merge') {
+      if (conflict.field.startsWith('bestScores')) {
+        const local = conflict.localValue as BestScore;
+        const cloud = conflict.cloudValue as BestScore;
+        conflict.resolvedValue = local.score >= cloud.score ? local : cloud;
+      } else if (conflict.field === 'scoreHistory') {
+        conflict.resolvedValue = this.mergeScoreHistory(
+          conflict.localValue,
+          conflict.cloudValue
+        );
+      } else if (conflict.field === 'favorites') {
+        conflict.resolvedValue = Array.from(new Set([
+          ...conflict.localValue,
+          ...conflict.cloudValue
+        ]));
+      }
     }
     
     conflict.resolved = true;
@@ -570,7 +629,7 @@ export class CloudSaveSystem {
     if (!this.localCache) return;
 
     for (const conflict of this.localCache.conflicts) {
-      if (!conflict.resolved && conflict.resolvedValue !== undefined) {
+      if (conflict.resolved && conflict.resolvedValue !== undefined) {
         const parts = conflict.field.split('.');
         let target: any = this.localCache.saveData;
         
@@ -586,6 +645,8 @@ export class CloudSaveSystem {
     this.localCache.conflicts = [];
     this.saveLocalCache();
 
+    this.syncToScoreStorage();
+
     if (navigator.onLine) {
       this.syncWithCloud('local_first');
     }
@@ -593,7 +654,7 @@ export class CloudSaveSystem {
 
   public static createRecoveryCheckpoint(description: string): RecoveryCheckpoint {
     if (!this.localCache) {
-      throw new Error('No local cache not initialized');
+      throw new Error('Local cache not initialized');
     }
 
     const checkpoint: RecoveryCheckpoint = {
@@ -637,17 +698,55 @@ export class CloudSaveSystem {
     return true;
   }
 
+  private static getMigrationCodesCloud(): Record<string, any> {
+    try {
+      const data = localStorage.getItem(MIGRATION_CODES_CLOUD_KEY);
+      return data ? JSON.parse(data) : {};
+    } catch (e) {
+      console.error('Failed to load migration codes:', e);
+      return {};
+    }
+  }
+
+  private static saveMigrationCodesCloud(codes: Record<string, any>): void {
+    try {
+      localStorage.setItem(MIGRATION_CODES_CLOUD_KEY, JSON.stringify(codes));
+    } catch (e) {
+      console.error('Failed to save migration codes:', e);
+    }
+  }
+
+  public static generateMigrationCode(): string {
+    const account = AccountSystem.getCurrentAccount();
+    if (!account) {
+      throw new Error('Not logged in');
+    }
+
+    const code = Math.random().toString(36).substring(2, 8).toUpperCase();
+    const migrationData = {
+      code,
+      accountId: account.accountId,
+      createdAt: Date.now(),
+      expiresAt: Date.now() + MIGRATION_CODE_EXPIRY_HOURS * 60 * 60 * 1000,
+      used: false
+    };
+
+    const codes = this.getMigrationCodesCloud();
+    codes[code] = migrationData;
+    this.saveMigrationCodesCloud(codes);
+
+    return code;
+  }
+
   public static async migrateFromCode(code: string): Promise<boolean> {
     try {
-      const migrationKey = 'migration_code_' + code;
-      const stored = sessionStorage.getItem(migrationKey);
+      const codes = this.getMigrationCodesCloud();
+      const migrationData = codes[code];
       
-      if (!stored) {
+      if (!migrationData) {
         throw new Error('Invalid or expired migration code');
       }
 
-      const migrationData = JSON.parse(stored);
-      
       if (migrationData.used || Date.now() > migrationData.expiresAt) {
         throw new Error('Migration code expired or already used');
       }
@@ -670,10 +769,13 @@ export class CloudSaveSystem {
         this.incrementVersion();
         this.saveLocalCache();
 
-        await this.syncToScoreStorage();
+        this.syncToScoreStorage();
 
         migrationData.used = true;
-        sessionStorage.setItem(migrationKey, JSON.stringify(migrationData));
+        codes[code] = migrationData;
+        this.saveMigrationCodesCloud(codes);
+
+        await this.pushCloudSave(merged);
       }
 
       return true;
@@ -700,11 +802,16 @@ export class CloudSaveSystem {
   }
 
   public static forceSync(): Promise<SyncResult> {
-    return this.syncWithCloud('local_first');
+    return this.syncWithCloud('merge');
   }
 
   public static clearLocalCache(): void {
-    localStorage.removeItem(LOCAL_SAVE_CACHE_KEY);
+    if (this.currentAccountId) {
+      const cacheKey = this.getAccountCacheKey(this.currentAccountId);
+      localStorage.removeItem(cacheKey);
+      const checkpointsKey = this.getAccountCheckpointsKey(this.currentAccountId);
+      localStorage.removeItem(checkpointsKey);
+    }
     this.localCache = null;
     this.loadLocalCache();
   }

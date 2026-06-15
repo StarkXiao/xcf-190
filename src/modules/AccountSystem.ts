@@ -5,9 +5,19 @@ import {
   GuestUpgradeState,
   MigrationState,
   AccountState,
-  ACCOUNT_STORAGE_KEY,
-  MIGRATION_CODE_EXPIRY_HOURS
+  ACCOUNT_STORAGE_KEY
 } from '../types';
+import { CloudSaveSystem } from './CloudSaveSystem';
+
+const USERS_CLOUD_KEY = 'floating-island-bookstore-users-cloud';
+
+interface UserRecord {
+  accountId: string;
+  username: string;
+  email?: string;
+  passwordHash: string;
+  profile: AccountProfile;
+}
 
 export class AccountSystem {
   private static state: AccountState = {
@@ -50,6 +60,34 @@ export class AccountSystem {
     return prefix + Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
   }
 
+  private static simpleHash(str: string): string {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash;
+    }
+    return Math.abs(hash).toString(36);
+  }
+
+  private static loadUsers(): Record<string, UserRecord> {
+    try {
+      const data = localStorage.getItem(USERS_CLOUD_KEY);
+      return data ? JSON.parse(data) : {};
+    } catch (e) {
+      console.error('Failed to load users:', e);
+      return {};
+    }
+  }
+
+  private static saveUsers(users: Record<string, UserRecord>): void {
+    try {
+      localStorage.setItem(USERS_CLOUD_KEY, JSON.stringify(users));
+    } catch (e) {
+      console.error('Failed to save users:', e);
+    }
+  }
+
   private static saveState(): void {
     try {
       localStorage.setItem(ACCOUNT_STORAGE_KEY, JSON.stringify(this.state));
@@ -81,13 +119,16 @@ export class AccountSystem {
     
     if (!this.state.guestAccount) {
       this.createGuestAccount();
+      return;
     }
     
-    if (!this.state.isLoggedIn && this.state.guestAccount) {
+    if (!this.state.isLoggedIn || !this.state.currentAccount) {
       this.state.isLoggedIn = true;
       this.state.currentAccount = this.state.guestAccount;
       this.saveState();
     }
+    
+    CloudSaveSystem.switchToCurrentAccount();
   }
 
   public static createGuestAccount(): AccountProfile {
@@ -106,10 +147,12 @@ export class AccountSystem {
     this.state.isLoggedIn = true;
     this.saveState();
     
+    CloudSaveSystem.switchToCurrentAccount();
+    
     return guestAccount;
   }
 
-  public static async registerAccount(username: string, email: string, _password: string): Promise<AccountProfile> {
+  public static async registerAccount(username: string, email: string, password: string): Promise<AccountProfile> {
     if (this.state.currentAccount?.accountType === 'registered') {
       throw new Error('Already logged in as a registered user');
     }
@@ -118,17 +161,22 @@ export class AccountSystem {
       throw new Error('Upgrade already in progress');
     }
 
+    const users = this.loadUsers();
+    if (users[username]) {
+      throw new Error('Username already exists');
+    }
+
     this.state.upgradeState.isUpgrading = true;
     this.state.upgradeState.progress = 0;
     this.saveState();
 
     try {
-      this.state.upgradeState.progress = 30;
+      this.state.upgradeState.progress = 20;
       this.saveState();
 
       await new Promise(resolve => setTimeout(resolve, 200));
 
-      this.state.upgradeState.progress = 60;
+      this.state.upgradeState.progress = 40;
       this.saveState();
 
       const deviceInfo = this.getDeviceInfo();
@@ -140,11 +188,12 @@ export class AccountSystem {
 
       await new Promise(resolve => setTimeout(resolve, 200));
 
-      this.state.upgradeState.progress = 90;
+      this.state.upgradeState.progress = 70;
       this.saveState();
 
+      const newAccountId = this.generateAccountId('registered');
       const newAccount: AccountProfile = {
-        accountId: this.generateAccountId('registered'),
+        accountId: newAccountId,
         accountType: 'registered',
         username,
         email,
@@ -154,7 +203,18 @@ export class AccountSystem {
         devices: updatedDevices
       };
 
-      await new Promise(resolve => setTimeout(resolve, 100));
+      const userRecord: UserRecord = {
+        accountId: newAccountId,
+        username,
+        email,
+        passwordHash: this.simpleHash(password),
+        profile: newAccount
+      };
+
+      users[username] = userRecord;
+      this.saveUsers(users);
+
+      await new Promise(resolve => setTimeout(resolve, 200));
 
       this.state.upgradeState.progress = 100;
       this.state.currentAccount = newAccount;
@@ -162,6 +222,8 @@ export class AccountSystem {
       this.state.isLoggedIn = true;
       this.state.upgradeState.isUpgrading = false;
       this.saveState();
+
+      CloudSaveSystem.switchToCurrentAccount();
 
       return newAccount;
     } catch (e) {
@@ -172,7 +234,7 @@ export class AccountSystem {
     }
   }
 
-  public static async loginAccount(username: string, _password: string): Promise<AccountProfile> {
+  public static async loginAccount(username: string, password: string): Promise<AccountProfile> {
     if (this.state.upgradeState.isUpgrading) {
       throw new Error('Upgrade in progress');
     }
@@ -181,30 +243,54 @@ export class AccountSystem {
     this.saveState();
 
     try {
-      this.state.upgradeState.progress = 50;
+      this.state.upgradeState.progress = 30;
       this.saveState();
 
-      await new Promise(resolve => setTimeout(resolve, 300));
+      await new Promise(resolve => setTimeout(resolve, 200));
+
+      const users = this.loadUsers();
+      const userRecord = users[username];
+      
+      if (!userRecord) {
+        throw new Error('User not found');
+      }
+
+      if (userRecord.passwordHash !== this.simpleHash(password)) {
+        throw new Error('Incorrect password');
+      }
+
+      this.state.upgradeState.progress = 60;
+      this.saveState();
 
       const deviceInfo = this.getDeviceInfo();
+      const existingDevices = userRecord.profile.devices || [];
+      const updatedDevices = existingDevices.map(d => ({ ...d, isCurrentDevice: d.deviceId === deviceInfo.deviceId }));
+      if (!updatedDevices.some(d => d.deviceId === deviceInfo.deviceId)) {
+        updatedDevices.push(deviceInfo);
+      } else {
+        const idx = updatedDevices.findIndex(d => d.deviceId === deviceInfo.deviceId);
+        updatedDevices[idx].lastLoginAt = Date.now();
+      }
 
-      const account: AccountProfile = {
-        accountId: this.generateAccountId('registered'),
-        accountType: 'registered',
-        username,
-        displayName: username,
-        createdAt: Date.now(),
+      const updatedProfile: AccountProfile = {
+        ...userRecord.profile,
         lastLoginAt: Date.now(),
-        devices: [deviceInfo]
+        devices: updatedDevices
       };
 
+      userRecord.profile = updatedProfile;
+      users[username] = userRecord;
+      this.saveUsers(users);
+
       this.state.upgradeState.progress = 100;
-      this.state.currentAccount = account;
+      this.state.currentAccount = updatedProfile;
       this.state.guestAccount = null;
       this.state.isLoggedIn = true;
       this.saveState();
 
-      return account;
+      CloudSaveSystem.switchToCurrentAccount();
+
+      return updatedProfile;
     } catch (e) {
       this.state.upgradeState.error = e instanceof Error ? e.message : 'Login failed';
       this.saveState();
@@ -225,12 +311,16 @@ export class AccountSystem {
       return;
     }
 
-    this.state.isLoggedIn = false;
-    this.state.currentAccount = this.state.guestAccount;
-    if (!this.state.currentAccount) {
+    if (!this.state.guestAccount) {
       this.createGuestAccount();
+      return;
     }
+
+    this.state.isLoggedIn = true;
+    this.state.currentAccount = this.state.guestAccount;
     this.saveState();
+
+    CloudSaveSystem.switchToCurrentAccount();
   }
 
   public static getCurrentAccount(): AccountProfile | null {
@@ -317,25 +407,20 @@ export class AccountSystem {
       ...updates
     };
 
+    if (this.state.currentAccount.accountType === 'registered' && this.state.currentAccount.username) {
+      const users = this.loadUsers();
+      const username = this.state.currentAccount.username;
+      if (users[username]) {
+        users[username].profile = this.state.currentAccount;
+        this.saveUsers(users);
+      }
+    }
+
     this.saveState();
   }
 
   public static generateMigrationCode(): string {
-    if (!this.state.currentAccount) {
-      throw new Error('Not logged in');
-    }
-
-    const code = Math.random().toString(36).substring(2, 8).toUpperCase();
-    const migrationData = {
-      code,
-      accountId: this.state.currentAccount.accountId,
-      createdAt: Date.now(),
-      expiresAt: Date.now() + MIGRATION_CODE_EXPIRY_HOURS * 60 * 60 * 1000,
-      used: false
-    };
-
-    sessionStorage.setItem('migration_code_' + code, JSON.stringify(migrationData));
-    return code;
+    return CloudSaveSystem.generateMigrationCode();
   }
 
   public static getState(): AccountState {
