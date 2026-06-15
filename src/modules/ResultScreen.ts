@@ -3,6 +3,7 @@ import { ScoreData, CharHitRecord, NoteType, NoteTypeStats, Difficulty, BestScor
 import { ScoreStorage } from './ScoreStorage';
 import { SongWithUnlock } from '../data/songs';
 import { StoryChapterSystem } from './StoryChapterSystem';
+import { SeasonSystem } from './SeasonSystem';
 
 const NOTE_TYPE_LABELS: Record<NoteType, string> = {
   tap: '点击',
@@ -67,7 +68,8 @@ export class ResultScreen {
     isPractice: boolean = false,
     practiceSpeed: number = 1.0,
     newlyUnlockedSongs: SongWithUnlock[] = [],
-    storyEvents: StoryStateChangeEvent[] = []
+    storyEvents: StoryStateChangeEvent[] = [],
+    songTitle: string = ''
   ): void {
     this.animationComplete = false;
     this.pendingAction = undefined;
@@ -88,6 +90,19 @@ export class ResultScreen {
     mask.endFill();
     this.container.addChild(mask);
 
+    let seasonResult = null;
+    if (!isPractice && songId && difficulty) {
+      const seasonSystem = SeasonSystem.getInstance();
+      seasonResult = seasonSystem.onGameComplete(
+        songId,
+        songTitle,
+        difficulty,
+        score,
+        accuracy,
+        isPractice
+      );
+    }
+
     this.createPoemDisplay(charRecords);
     this.createScoreDisplay(score, accuracy, previousBest, isPractice, practiceSpeed);
     this.createTypeStatsDisplay(score.typeStats);
@@ -102,6 +117,9 @@ export class ResultScreen {
     }
     if (storyEvents && storyEvents.length > 0) {
       this.createStoryProgressNotifications(storyEvents);
+    }
+    if (seasonResult && (seasonResult.pointsGained > 0 || seasonResult.completedTasks.length > 0 || seasonResult.isNewWeeklyBest)) {
+      this.createSeasonProgressNotification(seasonResult);
     }
     this.createSongInfoFooter(songId, difficulty, isPractice);
     this.createMiniLeaderboardButton(songId, difficulty);
@@ -734,6 +752,163 @@ export class ResultScreen {
       };
       animate();
     }, 2800);
+  }
+
+  private createSeasonProgressNotification(seasonResult: {
+    pointsGained: number;
+    completedTasks: string[];
+    isNewWeeklyBest: boolean;
+  }): void {
+    const seasonSystem = SeasonSystem.getInstance();
+    const progressInfo = seasonSystem.getProgressInfo();
+    const tasks = seasonSystem.getAllTasks();
+    const completedTaskInfos = tasks.filter(t => seasonResult.completedTasks.includes(t.id));
+
+    const notificationContainer = new PIXI.Container();
+    notificationContainer.x = this.app.screen.width / 2;
+    notificationContainer.y = 150;
+
+    const totalWidth = 400;
+    const hasTasks = completedTaskInfos.length > 0;
+    const cardHeight = 80 + (hasTasks ? completedTaskInfos.length * 32 : 0) + (seasonResult.isNewWeeklyBest ? 40 : 0);
+
+    const bg = new PIXI.Graphics();
+    bg.beginFill(0x2a1a3a, 0.95);
+    bg.lineStyle(3, 0xffd700, 1);
+    bg.drawRoundedRect(-totalWidth / 2, -cardHeight / 2, totalWidth, cardHeight, 14);
+    bg.endFill();
+    notificationContainer.addChild(bg);
+
+    const sparkleCount = 6;
+    for (let i = 0; i < sparkleCount; i++) {
+      const angle = (i / sparkleCount) * Math.PI * 2;
+      const radius = totalWidth / 2 + 8;
+      const spark = new PIXI.Graphics();
+      spark.beginFill(0xffd700, 0.8);
+      spark.drawCircle(0, 0, 3);
+      spark.endFill();
+      spark.x = Math.cos(angle) * radius;
+      spark.y = Math.sin(angle) * (cardHeight / 2 + 8);
+      spark.name = `spark_${i}`;
+      notificationContainer.addChild(spark);
+    }
+
+    const headerStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 18,
+      fontWeight: 'bold',
+      fill: 0xffd700,
+      stroke: 0x000000,
+      strokeThickness: 2,
+      align: 'center'
+    });
+    const header = new PIXI.Text('🏆 赛季活动更新', headerStyle);
+    header.anchor.set(0.5);
+    header.y = -cardHeight / 2 + 24;
+    notificationContainer.addChild(header);
+
+    let currentY = -cardHeight / 2 + 50;
+
+    if (seasonResult.pointsGained > 0) {
+      const pointsStyle = new PIXI.TextStyle({
+        fontFamily: 'monospace',
+        fontSize: 16,
+        fontWeight: 'bold',
+        fill: 0x6bff9d,
+        align: 'center'
+      });
+      const pointsText = new PIXI.Text(
+        `+${seasonResult.pointsGained} 积分  Lv.${progressInfo.currentLevel}`,
+        pointsStyle
+      );
+      pointsText.anchor.set(0.5);
+      pointsText.y = currentY;
+      notificationContainer.addChild(pointsText);
+      currentY += 28;
+    }
+
+    if (hasTasks) {
+      const taskLabelStyle = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 13,
+        fill: 0xaaaaaa,
+        align: 'left'
+      });
+      const taskLabel = new PIXI.Text('完成任务:', taskLabelStyle);
+      taskLabel.anchor.set(0, 0);
+      taskLabel.x = -totalWidth / 2 + 20;
+      taskLabel.y = currentY;
+      notificationContainer.addChild(taskLabel);
+      currentY += 22;
+
+      completedTaskInfos.forEach(task => {
+        const taskStyle = new PIXI.TextStyle({
+          fontFamily: 'sans-serif',
+          fontSize: 13,
+          fill: 0xffffff,
+          align: 'left'
+        });
+        const taskText = new PIXI.Text(
+          `✓ ${task.title}  (+${task.rewardPoints})`,
+          taskStyle
+        );
+        taskText.anchor.set(0, 0);
+        taskText.x = -totalWidth / 2 + 30;
+        taskText.y = currentY;
+        notificationContainer.addChild(taskText);
+        currentY += 26;
+      });
+    }
+
+    if (seasonResult.isNewWeeklyBest) {
+      const bestStyle = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 14,
+        fontWeight: 'bold',
+        fill: 0xff6b9d,
+        stroke: 0x000000,
+        strokeThickness: 1,
+        align: 'center'
+      });
+      const bestText = new PIXI.Text('🌟 新周榜最佳成绩！', bestStyle);
+      bestText.anchor.set(0.5);
+      bestText.y = currentY + 10;
+      notificationContainer.addChild(bestText);
+    }
+
+    notificationContainer.scale.set(0);
+    notificationContainer.alpha = 0;
+    this.container.addChild(notificationContainer);
+
+    setTimeout(() => {
+      const startTime = Date.now();
+      const duration = 700;
+      const animate = () => {
+        const elapsed = Date.now() - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        const eased = 1 - Math.pow(1 - progress, 3);
+
+        notificationContainer.scale.set(eased);
+        notificationContainer.alpha = eased;
+
+        for (let i = 0; i < sparkleCount; i++) {
+          const spark = notificationContainer.getChildByName(`spark_${i}`) as PIXI.Graphics;
+          if (spark) {
+            const angle = (i / sparkleCount) * Math.PI * 2 + elapsed / 500;
+            const baseRadius = totalWidth / 2 + 10;
+            const pulseRadius = baseRadius + Math.sin(elapsed / 150 + i) * 4;
+            spark.x = Math.cos(angle) * pulseRadius;
+            spark.y = Math.sin(angle) * (cardHeight / 2 + 10 + Math.sin(elapsed / 150 + i) * 4);
+            spark.alpha = 0.6 + Math.sin(elapsed / 180 + i * 0.7) * 0.4;
+          }
+        }
+
+        if (progress < 1 || elapsed < duration + 4000) {
+          requestAnimationFrame(animate);
+        }
+      };
+      animate();
+    }, 2000);
   }
 
   private drawStar(graphics: PIXI.Graphics, cx: number, cy: number, spikes: number, outerRadius: number, innerRadius: number): void {

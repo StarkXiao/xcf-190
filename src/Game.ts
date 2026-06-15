@@ -1652,7 +1652,8 @@ export class Game {
       isPractice,
       this.practiceConfig.speedMultiplier,
       newlyUnlockedSongs,
-      storyEvents
+      storyEvents,
+      this.currentChart?.chartEntry.metadata.title || ''
     );
   }
 

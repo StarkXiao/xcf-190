@@ -569,3 +569,112 @@ export interface StoryStateChangeEvent {
 export type StoryStateChangeListener = (event: StoryStateChangeEvent) => void;
 
 export const STORY_STATE_STORAGE_KEY = 'floating-island-bookstore-story-state';
+
+export type TaskType = 'daily' | 'weekly';
+export type TaskConditionType = 'play_count' | 'perfect_count' | 'combo' | 'rating' | 'accuracy' | 'score' | 'unique_songs';
+
+export interface SeasonTask {
+  id: string;
+  type: TaskType;
+  title: string;
+  description: string;
+  conditionType: TaskConditionType;
+  targetValue: number;
+  currentValue: number;
+  rewardPoints: number;
+  isCompleted: boolean;
+  isClaimed: boolean;
+  songId?: string;
+  difficulty?: Difficulty;
+  minRating?: string;
+  minAccuracy?: number;
+}
+
+export interface SeasonReward {
+  id: string;
+  title: string;
+  description: string;
+  requiredPoints: number;
+  rewardType: 'title' | 'frame' | 'song' | 'currency' | 'avatar';
+  rewardValue: string;
+  isClaimed: boolean;
+}
+
+export interface SeasonSong {
+  songId: string;
+  isUnlocked: boolean;
+  unlockCondition: string;
+}
+
+export interface WeeklyRankEntry {
+  rank: number;
+  playerName: string;
+  score: number;
+  songId: string;
+  songTitle: string;
+  difficulty: Difficulty;
+  rating: string;
+  accuracy: number;
+  maxCombo: number;
+  timestamp: number;
+}
+
+export interface SeasonData {
+  id: string;
+  name: string;
+  description: string;
+  startTime: number;
+  endTime: number;
+  theme: string;
+  accentColor: string;
+  tasks: SeasonTask[];
+  rewards: SeasonReward[];
+  limitedSongs: SeasonSong[];
+  weeklyRank: WeeklyRankEntry[];
+  weeklyRankRefreshTime: number;
+}
+
+export interface PlayerSeasonState {
+  seasonId: string;
+  currentPoints: number;
+  totalPoints: number;
+  completedTasks: string[];
+  claimedTasks: string[];
+  claimedRewards: string[];
+  unlockedSongs: string[];
+  weeklyBestScore: number;
+  weeklyBestSongId?: string;
+  weeklyBestDifficulty?: Difficulty;
+  lastWeeklyReset: number;
+  dailyResetDate: string;
+  playStats: {
+    totalPlayCount: number;
+    totalPerfectCount: number;
+    totalMaxCombo: number;
+    uniqueSongsPlayed: string[];
+    songPlayCounts: Record<string, number>;
+  };
+}
+
+export interface SeasonProgressInfo {
+  currentPoints: number;
+  totalPoints: number;
+  completedTasks: number;
+  totalTasks: number;
+  unlockedRewards: number;
+  totalRewards: number;
+  currentLevel: number;
+  levelProgress: number;
+  nextLevelPoints: number;
+}
+
+export const SEASON_STATE_STORAGE_KEY = 'floating-island-bookstore-season-state';
+export const SEASON_DATA_STORAGE_KEY = 'floating-island-bookstore-season-data';
+
+export const SEASON_TASK_TYPES = {
+  DAILY: 'daily' as const,
+  WEEKLY: 'weekly' as const
+};
+
+export const WEEKLY_RESET_INTERVAL = 7 * 24 * 60 * 60 * 1000;
+export const DAILY_RESET_HOUR = 5;

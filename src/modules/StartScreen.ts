@@ -17,6 +17,7 @@ import { InputConfigManager } from './InputConfigManager';
 import { ChapterUnlockManager } from './ChapterUnlockManager';
 import { SongLibrary } from './SongLibrary';
 import { CoverArtManager } from './CoverArtManager';
+import { SeasonSystem } from './SeasonSystem';
 
 const DIFFICULTY_LABELS: Record<Difficulty, string> = {
   easy: '简单',
@@ -76,6 +77,12 @@ export class StartScreen {
   private loadedCoverTextures: Map<string, PIXI.Texture> = new Map();
   private removeLibraryListener?: () => void;
 
+  private seasonPanel: PIXI.Container;
+  private seasonPanelVisible: boolean = false;
+  private seasonContent: PIXI.Container;
+  private seasonTab: 'tasks' | 'rewards' | 'songs' | 'rank' = 'tasks';
+  private seasonSystem: SeasonSystem;
+
   constructor(app: PIXI.Application) {
     this.app = app;
     this.container = new PIXI.Container();
@@ -87,9 +94,12 @@ export class StartScreen {
     this.practicePanel = new PIXI.Container();
     this.filterPanel = new PIXI.Container();
     this.coverArtContainer = new PIXI.Container();
+    this.seasonPanel = new PIXI.Container();
+    this.seasonContent = new PIXI.Container();
     this.inputConfigManager = InputConfigManager.getInstance();
     this.songLibrary = SongLibrary.getInstance();
     this.coverArtManager = CoverArtManager.getInstance();
+    this.seasonSystem = SeasonSystem.getInstance();
     this.app.stage.addChild(this.container);
     this.initializeLibrary();
     this.createScreen();
@@ -114,6 +124,8 @@ export class StartScreen {
     this.createFilterToggle();
     this.createFilterPanel();
     this.createStoryButtons();
+    this.createSeasonToggle();
+    this.createSeasonPanel();
     this.setupConfigChangeListener();
     this.setupKeyCaptureListener();
   }
@@ -1481,6 +1493,971 @@ export class StartScreen {
     });
   }
 
+  private createSeasonToggle(): void {
+    const btnContainer = new PIXI.Graphics() as PIXI.Graphics & { labelText?: PIXI.Text };
+    btnContainer.x = this.app.screen.width - 70;
+    btnContainer.y = 220;
+
+    btnContainer.beginFill(0xe74c3c, 0.9);
+    btnContainer.lineStyle(2, 0xffd700, 0.6);
+    btnContainer.drawRoundedRect(-40, -20, 80, 40, 10);
+    btnContainer.endFill();
+
+    const btnStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 13,
+      fontWeight: 'bold',
+      fill: 0xffffff,
+      align: 'center'
+    });
+
+    const text = new PIXI.Text('🏆 赛季', btnStyle);
+    text.anchor.set(0.5);
+    btnContainer.addChild(text);
+
+    btnContainer.interactive = true;
+    btnContainer.cursor = 'pointer';
+    btnContainer.on('pointerdown', () => this.toggleSeasonPanel());
+
+    const badgeBg = new PIXI.Graphics();
+    badgeBg.beginFill(0xffd700, 1);
+    badgeBg.drawCircle(25, -15, 10);
+    badgeBg.endFill();
+    btnContainer.addChild(badgeBg);
+
+    const progressInfo = this.seasonSystem.getProgressInfo();
+    const badgeStyle = new PIXI.TextStyle({
+      fontFamily: 'monospace',
+      fontSize: 11,
+      fontWeight: 'bold',
+      fill: 0x8b4513,
+      align: 'center'
+    });
+    const badgeText = new PIXI.Text(`${progressInfo.currentLevel}`, badgeStyle);
+    badgeText.anchor.set(0.5);
+    badgeText.x = 25;
+    badgeText.y = -15;
+    btnContainer.addChild(badgeText);
+    badgeText.name = 'levelBadge';
+
+    this.container.addChild(btnContainer);
+  }
+
+  private createSeasonPanel(): void {
+    this.seasonPanel.x = 0;
+    this.seasonPanel.y = 0;
+    this.seasonPanel.visible = false;
+
+    const mask = new PIXI.Graphics();
+    mask.beginFill(0x000000, 0.9);
+    mask.drawRect(0, 0, this.app.screen.width, this.app.screen.height);
+    mask.endFill();
+    mask.interactive = true;
+    this.seasonPanel.addChild(mask);
+
+    const panelWidth = Math.min(720, this.app.screen.width - 40);
+    const panelHeight = Math.min(720, this.app.screen.height - 60);
+    const panelX = (this.app.screen.width - panelWidth) / 2;
+    const panelY = (this.app.screen.height - panelHeight) / 2;
+
+    const panelBg = new PIXI.Graphics();
+    panelBg.beginFill(0x151530, 0.98);
+    panelBg.lineStyle(3, 0xe74c3c, 0.8);
+    panelBg.drawRoundedRect(panelX, panelY, panelWidth, panelHeight, 16);
+    panelBg.endFill();
+    this.seasonPanel.addChild(panelBg);
+
+    const seasonName = this.seasonSystem.getSeasonName();
+    const titleStyle = new PIXI.TextStyle({
+      fontFamily: 'serif',
+      fontSize: 28,
+      fill: 0xffd700,
+      fontWeight: 'bold',
+      stroke: 0x8b4513,
+      strokeThickness: 2,
+      align: 'center'
+    });
+
+    const title = new PIXI.Text(`🏆 ${seasonName}`, titleStyle);
+    title.anchor.set(0.5);
+    title.x = this.app.screen.width / 2;
+    title.y = panelY + 35;
+    this.seasonPanel.addChild(title);
+
+    const closeBtn = new PIXI.Graphics();
+    closeBtn.x = panelX + panelWidth - 40;
+    closeBtn.y = panelY + 30;
+    closeBtn.beginFill(0xff6b6b, 0.9);
+    closeBtn.drawRoundedRect(-18, -18, 36, 36, 8);
+    closeBtn.endFill();
+    closeBtn.interactive = true;
+    closeBtn.cursor = 'pointer';
+    closeBtn.on('pointerdown', () => this.toggleSeasonPanel());
+
+    const closeStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 18,
+      fontWeight: 'bold',
+      fill: 0xffffff,
+      align: 'center'
+    });
+    const closeText = new PIXI.Text('✕', closeStyle);
+    closeText.anchor.set(0.5);
+    closeBtn.addChild(closeText);
+    this.seasonPanel.addChild(closeBtn);
+
+    this.createSeasonProgressBar(panelX, panelY, panelWidth);
+    this.createSeasonTabs(panelX, panelY, panelWidth);
+
+    this.seasonContent.x = 0;
+    this.seasonContent.y = panelY + 160;
+    this.seasonPanel.addChild(this.seasonContent);
+
+    this.updateSeasonContent();
+
+    this.container.addChild(this.seasonPanel);
+  }
+
+  private createSeasonProgressBar(panelX: number, panelY: number, panelWidth: number): void {
+    const progressInfo = this.seasonSystem.getProgressInfo();
+    const progressY = panelY + 75;
+
+    const levelStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 16,
+      fontWeight: 'bold',
+      fill: 0xffd700,
+      align: 'left'
+    });
+    const levelText = new PIXI.Text(`Lv.${progressInfo.currentLevel}`, levelStyle);
+    levelText.anchor.set(0, 0.5);
+    levelText.x = panelX + 30;
+    levelText.y = progressY;
+    this.seasonPanel.addChild(levelText);
+
+    const pointsStyle = new PIXI.TextStyle({
+      fontFamily: 'monospace',
+      fontSize: 13,
+      fill: 0x88ccff,
+      align: 'right'
+    });
+    const pointsText = new PIXI.Text(
+      `${progressInfo.currentPoints} / ${progressInfo.nextLevelPoints} 积分`,
+      pointsStyle
+    );
+    pointsText.anchor.set(1, 0.5);
+    pointsText.x = panelX + panelWidth - 30;
+    pointsText.y = progressY;
+    pointsText.name = 'pointsText';
+    this.seasonPanel.addChild(pointsText);
+
+    const barWidth = panelWidth - 120;
+    const barX = panelX + 70;
+    const barBg = new PIXI.Graphics();
+    barBg.beginFill(0x333355, 0.8);
+    barBg.drawRoundedRect(barX, progressY - 8, barWidth, 16, 8);
+    barBg.endFill();
+    this.seasonPanel.addChild(barBg);
+
+    const progress = progressInfo.levelProgress;
+    if (progress > 0) {
+      const bar = new PIXI.Graphics();
+      const barColor = 0xffd700;
+      bar.beginFill(barColor, 1);
+      bar.drawRoundedRect(barX, progressY - 8, barWidth * progress, 16, 8);
+      bar.endFill();
+      this.seasonPanel.addChild(bar);
+      bar.name = 'progressBar';
+    }
+
+    const taskStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 12,
+      fill: 0x888888,
+      align: 'left'
+    });
+    const taskText = new PIXI.Text(
+      `任务: ${progressInfo.completedTasks}/${progressInfo.totalTasks}  |  奖励: ${progressInfo.unlockedRewards}/${progressInfo.totalRewards}`,
+      taskStyle
+    );
+    taskText.anchor.set(0.5);
+    taskText.x = panelX + panelWidth / 2;
+    taskText.y = progressY + 22;
+    taskText.name = 'taskRewardText';
+    this.seasonPanel.addChild(taskText);
+  }
+
+  private createSeasonTabs(panelX: number, panelY: number, panelWidth: number): void {
+    const tabs = [
+      { key: 'tasks' as const, label: '📋 任务', color: 0xffd700 },
+      { key: 'rewards' as const, label: '🎁 奖励', color: 0x6bff9d },
+      { key: 'songs' as const, label: '🎵 限定曲', color: 0xff6b9d },
+      { key: 'rank' as const, label: '🏆 周榜', color: 0x9b59b6 }
+    ];
+
+    const tabWidth = (panelWidth - 60) / 4;
+    const tabHeight = 40;
+    const tabY = panelY + 130;
+
+    tabs.forEach((tab, index) => {
+      const btn = new PIXI.Graphics();
+      const isSelected = this.seasonTab === tab.key;
+      const x = panelX + 30 + index * tabWidth;
+
+      if (isSelected) {
+        btn.lineStyle(2, tab.color, 1);
+        btn.beginFill(tab.color, 0.3);
+      } else {
+        btn.lineStyle(1, 0x666688, 0.6);
+        btn.beginFill(0x2a2a4a, 0.8);
+      }
+      btn.drawRoundedRect(x, tabY, tabWidth - 6, tabHeight, 8);
+      btn.endFill();
+
+      const btnStyle = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 14,
+        fontWeight: 'bold',
+        fill: isSelected ? 0xffffff : 0xaaaaaa,
+        align: 'center'
+      });
+
+      const btnText = new PIXI.Text(tab.label, btnStyle);
+      btnText.anchor.set(0.5);
+      btnText.x = x + (tabWidth - 6) / 2;
+      btnText.y = tabY + tabHeight / 2;
+      btn.addChild(btnText);
+
+      btn.interactive = true;
+      btn.cursor = 'pointer';
+      btn.on('pointerdown', () => {
+        this.seasonTab = tab.key;
+        this.updateSeasonPanelTabs();
+        this.updateSeasonContent();
+      });
+
+      this.seasonPanel.addChild(btn);
+      btn.name = `seasonTab_${tab.key}`;
+    });
+  }
+
+  private updateSeasonPanelTabs(): void {
+    const tabs = ['tasks', 'rewards', 'songs', 'rank'];
+    tabs.forEach(tabKey => {
+      const tab = this.seasonPanel.getChildByName(`seasonTab_${tabKey}`);
+      if (tab) {
+        this.seasonPanel.removeChild(tab);
+      }
+    });
+
+    const panelWidth = Math.min(720, this.app.screen.width - 40);
+    const panelX = (this.app.screen.width - panelWidth) / 2;
+    const panelY = (this.app.screen.height - Math.min(720, this.app.screen.height - 60)) / 2;
+
+    this.createSeasonTabs(panelX, panelY, panelWidth);
+  }
+
+  private updateSeasonContent(): void {
+    this.seasonContent.removeChildren();
+
+    switch (this.seasonTab) {
+      case 'tasks':
+        this.renderSeasonTasks();
+        break;
+      case 'rewards':
+        this.renderSeasonRewards();
+        break;
+      case 'songs':
+        this.renderSeasonSongs();
+        break;
+      case 'rank':
+        this.renderSeasonRank();
+        break;
+    }
+  }
+
+  private renderSeasonTasks(): void {
+    const panelWidth = Math.min(720, this.app.screen.width - 40);
+    const contentWidth = panelWidth - 60;
+    const startX = (this.app.screen.width - panelWidth) / 2 + 30;
+
+    const dailyTasks = this.seasonSystem.getDailyTasks();
+    const weeklyTasks = this.seasonSystem.getWeeklyTasks();
+
+    let currentY = 0;
+
+    const sectionTitleStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 16,
+      fontWeight: 'bold',
+      fill: 0xffd700,
+      align: 'left'
+    });
+
+    const dailyTitle = new PIXI.Text('☀ 每日任务', sectionTitleStyle);
+    dailyTitle.anchor.set(0, 0);
+    dailyTitle.x = startX;
+    dailyTitle.y = currentY;
+    this.seasonContent.addChild(dailyTitle);
+    currentY += 30;
+
+    dailyTasks.forEach(task => {
+      currentY = this.renderTaskItem(task, startX, currentY, contentWidth);
+      currentY += 10;
+    });
+
+    currentY += 15;
+    const weeklyTitle = new PIXI.Text('🌟 每周任务', sectionTitleStyle);
+    weeklyTitle.anchor.set(0, 0);
+    weeklyTitle.x = startX;
+    weeklyTitle.y = currentY;
+    this.seasonContent.addChild(weeklyTitle);
+    currentY += 30;
+
+    weeklyTasks.forEach(task => {
+      currentY = this.renderTaskItem(task, startX, currentY, contentWidth);
+      currentY += 10;
+    });
+  }
+
+  private renderTaskItem(task: any, x: number, y: number, width: number): number {
+    const itemHeight = 70;
+    const isCompleted = task.isCompleted;
+
+    const bg = new PIXI.Graphics();
+    if (isCompleted) {
+      bg.beginFill(0x2a4a2a, 0.5);
+      bg.lineStyle(2, 0x6bff9d, 0.5);
+    } else {
+      bg.beginFill(0x2a2a4a, 0.6);
+      bg.lineStyle(1, 0x666688, 0.4);
+    }
+    bg.drawRoundedRect(x, y, width, itemHeight, 10);
+    bg.endFill();
+    this.seasonContent.addChild(bg);
+
+    const titleStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 15,
+      fontWeight: 'bold',
+      fill: isCompleted ? 0x6bff9d : 0xffffff,
+      align: 'left'
+    });
+    const title = new PIXI.Text(task.title, titleStyle);
+    title.anchor.set(0, 0);
+    title.x = x + 15;
+    title.y = y + 10;
+    this.seasonContent.addChild(title);
+
+    const descStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 12,
+      fill: 0xaaaaaa,
+      align: 'left',
+      wordWrap: true,
+      wordWrapWidth: width - 140
+    });
+    const desc = new PIXI.Text(task.description, descStyle);
+    desc.anchor.set(0, 0);
+    desc.x = x + 15;
+    desc.y = y + 32;
+    this.seasonContent.addChild(desc);
+
+    const rewardStyle = new PIXI.TextStyle({
+      fontFamily: 'monospace',
+      fontSize: 14,
+      fontWeight: 'bold',
+      fill: 0xffd700,
+      align: 'right'
+    });
+    const rewardText = new PIXI.Text(`+${task.rewardPoints} 积分`, rewardStyle);
+    rewardText.anchor.set(1, 0);
+    rewardText.x = x + width - 15;
+    rewardText.y = y + 10;
+    this.seasonContent.addChild(rewardText);
+
+    const progress = Math.min(task.currentValue / task.targetValue, 1);
+    const barWidth = width - 140;
+    const barY = y + 52;
+
+    const barBg = new PIXI.Graphics();
+    barBg.beginFill(0x333355, 0.8);
+    barBg.drawRoundedRect(x + 15, barY, barWidth, 10, 5);
+    barBg.endFill();
+    this.seasonContent.addChild(barBg);
+
+    if (progress > 0) {
+      const bar = new PIXI.Graphics();
+      const barColor = isCompleted ? 0x6bff9d : 0xffd700;
+      bar.beginFill(barColor, 1);
+      bar.drawRoundedRect(x + 15, barY, barWidth * progress, 10, 5);
+      bar.endFill();
+      this.seasonContent.addChild(bar);
+    }
+
+    const progressStyle = new PIXI.TextStyle({
+      fontFamily: 'monospace',
+      fontSize: 11,
+      fill: 0x888888,
+      align: 'left'
+    });
+    const progressText = new PIXI.Text(
+      `${task.currentValue} / ${task.targetValue}`,
+      progressStyle
+    );
+    progressText.anchor.set(0, 0.5);
+    progressText.x = x + 15;
+    progressText.y = barY + 5;
+    this.seasonContent.addChild(progressText);
+
+    if (isCompleted && !task.isClaimed) {
+      const claimBtn = new PIXI.Graphics();
+      claimBtn.beginFill(0xffd700, 1);
+      claimBtn.drawRoundedRect(x + width - 75, y + 40, 60, 24, 6);
+      claimBtn.endFill();
+      claimBtn.interactive = true;
+      claimBtn.cursor = 'pointer';
+
+      const claimStyle = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 12,
+        fontWeight: 'bold',
+        fill: 0x000000,
+        align: 'center'
+      });
+      const claimText = new PIXI.Text('领取', claimStyle);
+      claimText.anchor.set(0.5);
+      claimText.x = x + width - 45;
+      claimText.y = y + 52;
+      claimBtn.addChild(claimText);
+
+      this.seasonContent.addChild(claimBtn);
+    } else if (isCompleted && task.isClaimed) {
+      const claimedStyle = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 12,
+        fontWeight: 'bold',
+        fill: 0x6bff9d,
+        align: 'right'
+      });
+      const claimedText = new PIXI.Text('✓ 已完成', claimedStyle);
+      claimedText.anchor.set(1, 0);
+      claimedText.x = x + width - 15;
+      claimedText.y = y + 42;
+      this.seasonContent.addChild(claimedText);
+    }
+
+    return y + itemHeight;
+  }
+
+  private renderSeasonRewards(): void {
+    const panelWidth = Math.min(720, this.app.screen.width - 40);
+    const contentWidth = panelWidth - 60;
+    const startX = (this.app.screen.width - panelWidth) / 2 + 30;
+    const rewards = this.seasonSystem.getRewards();
+    const progressInfo = this.seasonSystem.getProgressInfo();
+
+    let currentY = 0;
+
+    const titleStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 16,
+      fontWeight: 'bold',
+      fill: 0xffd700,
+      align: 'left'
+    });
+    const title = new PIXI.Text('🎁 赛季奖励', titleStyle);
+    title.anchor.set(0, 0);
+    title.x = startX;
+    title.y = currentY;
+    this.seasonContent.addChild(title);
+    currentY += 30;
+
+    rewards.forEach(reward => {
+      const itemHeight = 70;
+      const isUnlocked = progressInfo.currentPoints >= reward.requiredPoints;
+
+      const bg = new PIXI.Graphics();
+      if (isUnlocked) {
+        bg.beginFill(0x3a2a1a, 0.6);
+        bg.lineStyle(2, 0xffd700, 0.6);
+      } else {
+        bg.beginFill(0x1a1a2a, 0.6);
+        bg.lineStyle(1, 0x444466, 0.4);
+      }
+      bg.drawRoundedRect(startX, currentY, contentWidth, itemHeight, 10);
+      bg.endFill();
+      this.seasonContent.addChild(bg);
+
+      const iconStyle = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 28,
+        align: 'center'
+      });
+      const iconText = new PIXI.Text(
+        reward.rewardType === 'song' ? '🎵' : reward.rewardType === 'title' ? '👑' : reward.rewardType === 'frame' ? '🖼' : '💰',
+        iconStyle
+      );
+      iconText.anchor.set(0, 0.5);
+      iconText.x = startX + 15;
+      iconText.y = currentY + itemHeight / 2;
+      this.seasonContent.addChild(iconText);
+
+      const rewardTitleStyle = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 15,
+        fontWeight: 'bold',
+        fill: isUnlocked ? 0xffd700 : 0x888888,
+        align: 'left'
+      });
+      const rewardTitle = new PIXI.Text(reward.title, rewardTitleStyle);
+      rewardTitle.anchor.set(0, 0);
+      rewardTitle.x = startX + 60;
+      rewardTitle.y = currentY + 12;
+      this.seasonContent.addChild(rewardTitle);
+
+      const rewardDescStyle = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 12,
+        fill: 0xaaaaaa,
+        align: 'left',
+        wordWrap: true,
+        wordWrapWidth: contentWidth - 180
+      });
+      const rewardDesc = new PIXI.Text(reward.description, rewardDescStyle);
+      rewardDesc.anchor.set(0, 0);
+      rewardDesc.x = startX + 60;
+      rewardDesc.y = currentY + 35;
+      this.seasonContent.addChild(rewardDesc);
+
+      const pointsStyle = new PIXI.TextStyle({
+        fontFamily: 'monospace',
+        fontSize: 14,
+        fontWeight: 'bold',
+        fill: isUnlocked ? 0x6bff9d : 0x666688,
+        align: 'right'
+      });
+      const pointsText = new PIXI.Text(
+        `${reward.requiredPoints} 积分`,
+        pointsStyle
+      );
+      pointsText.anchor.set(1, 0);
+      pointsText.x = startX + contentWidth - 15;
+      pointsText.y = currentY + 12;
+      this.seasonContent.addChild(pointsText);
+
+      if (isUnlocked && !reward.isClaimed) {
+        const claimBtn = new PIXI.Graphics();
+        claimBtn.beginFill(0xffd700, 1);
+        claimBtn.drawRoundedRect(startX + contentWidth - 75, currentY + 38, 60, 24, 6);
+        claimBtn.endFill();
+        claimBtn.interactive = true;
+        claimBtn.cursor = 'pointer';
+        claimBtn.on('pointerdown', () => {
+          this.seasonSystem.claimReward(reward.id);
+          this.updateSeasonContent();
+          this.updateSeasonProgressBarDisplay();
+        });
+
+        const claimStyle = new PIXI.TextStyle({
+          fontFamily: 'sans-serif',
+          fontSize: 12,
+          fontWeight: 'bold',
+          fill: 0x000000,
+          align: 'center'
+        });
+        const claimText = new PIXI.Text('领取', claimStyle);
+        claimText.anchor.set(0.5);
+        claimText.x = startX + contentWidth - 45;
+        claimText.y = currentY + 50;
+        claimBtn.addChild(claimText);
+
+        this.seasonContent.addChild(claimBtn);
+      } else if (reward.isClaimed) {
+        const claimedStyle = new PIXI.TextStyle({
+          fontFamily: 'sans-serif',
+          fontSize: 12,
+          fontWeight: 'bold',
+          fill: 0x6bff9d,
+          align: 'right'
+        });
+        const claimedText = new PIXI.Text('✓ 已领取', claimedStyle);
+        claimedText.anchor.set(1, 0);
+        claimedText.x = startX + contentWidth - 15;
+        claimedText.y = currentY + 42;
+        this.seasonContent.addChild(claimedText);
+      }
+
+      currentY += itemHeight + 10;
+    });
+  }
+
+  private renderSeasonSongs(): void {
+    const panelWidth = Math.min(720, this.app.screen.width - 40);
+    const contentWidth = panelWidth - 60;
+    const startX = (this.app.screen.width - panelWidth) / 2 + 30;
+    const limitedSongs = this.seasonSystem.getLimitedSongs();
+    const songLibrary = SongLibrary.getInstance();
+
+    let currentY = 0;
+
+    const titleStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 16,
+      fontWeight: 'bold',
+      fill: 0xffd700,
+      align: 'left'
+    });
+    const title = new PIXI.Text('🎵 限定曲目', titleStyle);
+    title.anchor.set(0, 0);
+    title.x = startX;
+    title.y = currentY;
+    this.seasonContent.addChild(title);
+    currentY += 30;
+
+    limitedSongs.forEach(seasonSong => {
+      const itemHeight = 80;
+      const song = songLibrary.getSong(seasonSong.songId);
+      const isUnlocked = seasonSong.isUnlocked;
+
+      const bg = new PIXI.Graphics();
+      if (isUnlocked) {
+        bg.beginFill(0x2a1a3a, 0.6);
+        bg.lineStyle(2, 0xff6b9d, 0.6);
+      } else {
+        bg.beginFill(0x1a1a2a, 0.6);
+        bg.lineStyle(1, 0x444466, 0.4);
+      }
+      bg.drawRoundedRect(startX, currentY, contentWidth, itemHeight, 10);
+      bg.endFill();
+      this.seasonContent.addChild(bg);
+
+      const coverX = startX + 15;
+      const coverWidth = 100;
+      const coverHeight = 56;
+
+      if (song?.metadata.coverArt) {
+        const coverBg = new PIXI.Graphics();
+        coverBg.beginFill(0x2a2a4a, 1);
+        coverBg.drawRoundedRect(coverX, currentY + 12, coverWidth, coverHeight, 6);
+        coverBg.endFill();
+        this.seasonContent.addChild(coverBg);
+
+        const coverTitleStyle = new PIXI.TextStyle({
+          fontFamily: 'serif',
+          fontSize: 14,
+          fontWeight: 'bold',
+          fill: isUnlocked ? 0xffd700 : 0x666666,
+          align: 'center'
+        });
+        const coverTitle = new PIXI.Text(
+          song?.metadata.title || '限定曲目',
+          coverTitleStyle
+        );
+        coverTitle.anchor.set(0.5);
+        coverTitle.x = coverX + coverWidth / 2;
+        coverTitle.y = currentY + 12 + coverHeight / 2;
+        this.seasonContent.addChild(coverTitle);
+      }
+
+      const songTitleStyle = new PIXI.TextStyle({
+        fontFamily: 'serif',
+        fontSize: 17,
+        fontWeight: 'bold',
+        fill: isUnlocked ? 0xffffff : 0x666666,
+        align: 'left'
+      });
+      const songTitle = new PIXI.Text(
+        isUnlocked ? song?.metadata.title || '限定曲目' : `🔒 ${song?.metadata.title || '限定曲目'}`,
+        songTitleStyle
+      );
+      songTitle.anchor.set(0, 0);
+      songTitle.x = startX + 130;
+      songTitle.y = currentY + 12;
+      this.seasonContent.addChild(songTitle);
+
+      const artistStyle = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 12,
+        fill: 0x888888,
+        align: 'left'
+      });
+      const artistText = new PIXI.Text(
+        song?.metadata.artist || '赛季限定',
+        artistStyle
+      );
+      artistText.anchor.set(0, 0);
+      artistText.x = startX + 130;
+      artistText.y = currentY + 35;
+      this.seasonContent.addChild(artistText);
+
+      const conditionStyle = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 11,
+        fill: isUnlocked ? 0x6bff9d : 0xff9d5b,
+        align: 'left'
+      });
+      const conditionText = new PIXI.Text(
+        isUnlocked ? '✓ 已解锁' : seasonSong.unlockCondition,
+        conditionStyle
+      );
+      conditionText.anchor.set(0, 0);
+      conditionText.x = startX + 130;
+      conditionText.y = currentY + 55;
+      this.seasonContent.addChild(conditionText);
+
+      if (isUnlocked) {
+        const playBtn = new PIXI.Graphics();
+        playBtn.beginFill(0xff6b9d, 1);
+        playBtn.drawRoundedRect(startX + contentWidth - 80, currentY + 25, 65, 30, 8);
+        playBtn.endFill();
+        playBtn.interactive = true;
+        playBtn.cursor = 'pointer';
+
+        const playStyle = new PIXI.TextStyle({
+          fontFamily: 'sans-serif',
+          fontSize: 13,
+          fontWeight: 'bold',
+          fill: 0xffffff,
+          align: 'center'
+        });
+        const playText = new PIXI.Text('去演奏', playStyle);
+        playText.anchor.set(0.5);
+        playText.x = startX + contentWidth - 47;
+        playText.y = currentY + 40;
+        playBtn.addChild(playText);
+
+        this.seasonContent.addChild(playBtn);
+      }
+
+      currentY += itemHeight + 10;
+    });
+  }
+
+  private renderSeasonRank(): void {
+    const panelWidth = Math.min(720, this.app.screen.width - 40);
+    const contentWidth = panelWidth - 60;
+    const startX = (this.app.screen.width - panelWidth) / 2 + 30;
+    const rankList = this.seasonSystem.getWeeklyRank();
+    const playerBest = this.seasonSystem.getPlayerWeeklyBest();
+
+    let currentY = 0;
+
+    const titleStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 16,
+      fontWeight: 'bold',
+      fill: 0xffd700,
+      align: 'left'
+    });
+    const title = new PIXI.Text('🏆 周榜排行', titleStyle);
+    title.anchor.set(0, 0);
+    title.x = startX;
+    title.y = currentY;
+    this.seasonContent.addChild(title);
+    currentY += 30;
+
+    const myBestStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 13,
+      fill: 0x88ccff,
+      align: 'left'
+    });
+    const myBestText = new PIXI.Text(
+      playerBest.score > 0
+        ? `我的周最佳: ${playerBest.score.toLocaleString()} 分`
+        : '暂无本周成绩记录',
+      myBestStyle
+    );
+    myBestText.anchor.set(0, 0);
+    myBestText.x = startX;
+    myBestText.y = currentY;
+    this.seasonContent.addChild(myBestText);
+    currentY += 25;
+
+    const refreshTime = this.seasonSystem.getWeeklyRankRefreshTime();
+    const timeStyle = new PIXI.TextStyle({
+      fontFamily: 'monospace',
+      fontSize: 11,
+      fill: 0x666688,
+      align: 'right'
+    });
+    const timeText = new PIXI.Text(
+      `刷新时间: ${new Date(refreshTime).toLocaleDateString()}`,
+      timeStyle
+    );
+    timeText.anchor.set(1, 0);
+    timeText.x = startX + contentWidth;
+    timeText.y = currentY - 18;
+    this.seasonContent.addChild(timeText);
+
+    const headerStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 12,
+      fill: 0x888888,
+      align: 'left'
+    });
+
+    const colHeaders = ['排名', '玩家', '分数', '曲目', '评级', '准确率'];
+    const colXs = [0, 45, 120, 230, 340, 400];
+
+    colHeaders.forEach((header, i) => {
+      const text = new PIXI.Text(header, headerStyle);
+      text.anchor.set(0, 0);
+      text.x = startX + colXs[i];
+      text.y = currentY;
+      this.seasonContent.addChild(text);
+    });
+    currentY += 22;
+
+    const divider = new PIXI.Graphics();
+    divider.lineStyle(1, 0x444466, 0.6);
+    divider.moveTo(startX, currentY);
+    divider.lineTo(startX + contentWidth, currentY);
+    this.seasonContent.addChild(divider);
+    currentY += 8;
+
+    const rowHeight = 30;
+    rankList.slice(0, 15).forEach((entry, index) => {
+      const rowY = currentY + index * rowHeight;
+      const isTopThree = index < 3;
+      const isPlayer = entry.playerName === '我';
+
+      if (isTopThree || isPlayer) {
+        const rowBg = new PIXI.Graphics();
+        const bgColor = isPlayer ? 0x6b9dff :
+          index === 0 ? 0xffd700 :
+          index === 1 ? 0xc0c0c0 :
+          0xcd7f32;
+        rowBg.beginFill(bgColor, isPlayer ? 0.15 : 0.1);
+        rowBg.drawRoundedRect(startX - 3, rowY - 3, contentWidth + 6, rowHeight - 4, 4);
+        rowBg.endFill();
+        this.seasonContent.addChild(rowBg);
+      }
+
+      const rankStyle = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: isTopThree ? 15 : 13,
+        fontWeight: isTopThree ? 'bold' : 'normal',
+        fill: index === 0 ? 0xffd700 : index === 1 ? 0xe0e0e0 : index === 2 ? 0xcd7f32 : 0x888888,
+        align: 'left'
+      });
+
+      const rankLabel = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `${index + 1}`;
+      const rankText = new PIXI.Text(rankLabel, rankStyle);
+      rankText.anchor.set(0, 0.5);
+      rankText.x = startX + colXs[0];
+      rankText.y = rowY + rowHeight / 2 - 4;
+      this.seasonContent.addChild(rankText);
+
+      const nameStyle = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 13,
+        fontWeight: isPlayer ? 'bold' : 'normal',
+        fill: isPlayer ? 0x6b9dff : 0xffffff,
+        align: 'left'
+      });
+      const nameText = new PIXI.Text(entry.playerName, nameStyle);
+      nameText.anchor.set(0, 0.5);
+      nameText.x = startX + colXs[1];
+      nameText.y = rowY + rowHeight / 2 - 4;
+      this.seasonContent.addChild(nameText);
+
+      const scoreStyle = new PIXI.TextStyle({
+        fontFamily: 'monospace',
+        fontSize: 12,
+        fontWeight: 'bold',
+        fill: 0xffd700,
+        align: 'left'
+      });
+      const scoreText = new PIXI.Text(entry.score.toLocaleString(), scoreStyle);
+      scoreText.anchor.set(0, 0.5);
+      scoreText.x = startX + colXs[2];
+      scoreText.y = rowY + rowHeight / 2 - 4;
+      this.seasonContent.addChild(scoreText);
+
+      const songStyle = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 11,
+        fill: 0xaaaaaa,
+        align: 'left'
+      });
+      const songText = new PIXI.Text(entry.songTitle, songStyle);
+      songText.anchor.set(0, 0.5);
+      songText.x = startX + colXs[3];
+      songText.y = rowY + rowHeight / 2 - 4;
+      this.seasonContent.addChild(songText);
+
+      const ratingColor = this.getRatingColor(entry.rating);
+      const ratingStyle = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 14,
+        fontWeight: 'bold',
+        fill: ratingColor,
+        stroke: 0x000000,
+        strokeThickness: 1,
+        align: 'left'
+      });
+      const ratingText = new PIXI.Text(entry.rating, ratingStyle);
+      ratingText.anchor.set(0, 0.5);
+      ratingText.x = startX + colXs[4];
+      ratingText.y = rowY + rowHeight / 2 - 4;
+      this.seasonContent.addChild(ratingText);
+
+      const accStyle = new PIXI.TextStyle({
+        fontFamily: 'monospace',
+        fontSize: 11,
+        fill: entry.accuracy >= 95 ? 0xffd700 : entry.accuracy >= 85 ? 0x6bff9d : entry.accuracy >= 70 ? 0x6b9dff : 0xff6b6b,
+        align: 'left'
+      });
+      const accText = new PIXI.Text(`${entry.accuracy.toFixed(1)}%`, accStyle);
+      accText.anchor.set(0, 0.5);
+      accText.x = startX + colXs[5];
+      accText.y = rowY + rowHeight / 2 - 4;
+      this.seasonContent.addChild(accText);
+    });
+  }
+
+  private updateSeasonProgressBarDisplay(): void {
+    const pointsText = this.seasonPanel.getChildByName('pointsText');
+    const progressBar = this.seasonPanel.getChildByName('progressBar');
+    const taskRewardText = this.seasonPanel.getChildByName('taskRewardText');
+
+    const progressInfo = this.seasonSystem.getProgressInfo();
+
+    if (pointsText) {
+      (pointsText as PIXI.Text).text = `${progressInfo.currentPoints} / ${progressInfo.nextLevelPoints} 积分`;
+    }
+    if (progressBar) {
+      const panelWidth = Math.min(720, this.app.screen.width - 40);
+      const barWidth = panelWidth - 120;
+      const g = progressBar as PIXI.Graphics;
+      g.clear();
+      g.beginFill(0xffd700, 1);
+      const panelX = (this.app.screen.width - panelWidth) / 2;
+      const barX = panelX + 70;
+      const panelY = (this.app.screen.height - Math.min(720, this.app.screen.height - 60)) / 2;
+      const progressY = panelY + 75;
+      g.drawRoundedRect(barX, progressY - 8, barWidth * progressInfo.levelProgress, 16, 8);
+      g.endFill();
+    }
+    if (taskRewardText) {
+      (taskRewardText as PIXI.Text).text =
+        `任务: ${progressInfo.completedTasks}/${progressInfo.totalTasks}  |  奖励: ${progressInfo.unlockedRewards}/${progressInfo.totalRewards}`;
+    }
+  }
+
+  private toggleSeasonPanel(): void {
+    this.seasonPanelVisible = !this.seasonPanelVisible;
+    this.seasonPanel.visible = this.seasonPanelVisible;
+    if (this.seasonPanelVisible) {
+      this.seasonTab = 'tasks';
+      this.updateSeasonPanelTabs();
+      this.updateSeasonContent();
+      this.updateSeasonProgressBarDisplay();
+    }
+  }
+
   private triggerPreload(): void {
     if (!this.onPreloadCallback) return;
     if (this.preloadDebounceTimer) {
@@ -1498,6 +2475,7 @@ export class StartScreen {
   public show(): void {
     this.container.visible = true;
     ChapterUnlockManager.evaluateAndUnlockAll();
+    this.seasonSystem.checkAndResetTasks();
     this.refreshLibraryEntries();
     this.updateSongInfo();
     this.updateCoverArtDisplay();
@@ -1514,6 +2492,8 @@ export class StartScreen {
     this.leaderboardPanel.visible = false;
     this.filterPanelVisible = false;
     this.filterPanel.visible = false;
+    this.seasonPanelVisible = false;
+    this.seasonPanel.visible = false;
   }
 
   public destroy(): void {
