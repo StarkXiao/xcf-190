@@ -1,0 +1,160 @@
+{
+  "version": 1,
+  "versionName": "1.0.0",
+  "publishTime": 1781538103508,
+  "minClientVersion": "1.0.0",
+  "songs": [
+    {
+      "songId": "love-poem",
+      "isOnline": true,
+      "sortPriority": 3,
+      "isNew": true,
+      "isHot": true,
+      "tags": [
+        "初恋",
+        "浪漫",
+        "入门"
+      ]
+    },
+    {
+      "songId": "spring-breeze",
+      "isOnline": true,
+      "sortPriority": 2,
+      "isNew": false,
+      "isHot": false,
+      "tags": [
+        "抒情",
+        "经典",
+        "中速"
+      ]
+    },
+    {
+      "songId": "moonlight-sonata",
+      "isOnline": true,
+      "sortPriority": 1,
+      "isNew": false,
+      "isHot": false,
+      "tags": [
+        "经典",
+        "思乡",
+        "高难度"
+      ]
+    }
+  ],
+  "activities": [
+    {
+      "id": "double_reward_launch",
+      "name": "开服双倍奖励",
+      "description": "活动期间，所有曲目获得双倍金币奖励！",
+      "isEnabled": true,
+      "startTime": 1781538103508,
+      "endTime": 1782142903508,
+      "type": "double_reward",
+      "config": {
+        "rewardMultiplier": 2,
+        "affectedTypes": [
+          "coin"
+        ]
+      }
+    },
+    {
+      "id": "login_bonus_daily",
+      "name": "每日登录奖励",
+      "description": "每日登录即可获得丰厚奖励，连续登录奖励更丰厚！",
+      "isEnabled": true,
+      "startTime": 1781538103508,
+      "endTime": 1784130103508,
+      "type": "login_bonus",
+      "config": {
+        "rewards": [
+          {
+            "day": 1,
+            "coin": 100,
+            "jade": 5
+          },
+          {
+            "day": 7,
+            "coin": 500,
+            "jade": 50,
+            "star": 5
+          }
+        ]
+      }
+    }
+  ],
+  "rewards": [
+    {
+      "id": "first_clear_love_poem",
+      "name": "初次通关：告白诗篇",
+      "type": "coin",
+      "value": 500,
+      "conditions": [
+        {
+          "type": "first_clear",
+          "targetValue": 1,
+          "songId": "love-poem",
+          "difficulty": "normal"
+        }
+      ],
+      "isEnabled": true
+    },
+    {
+      "id": "rating_s_any_song",
+      "name": "S级评价达成",
+      "type": "star",
+      "value": 5,
+      "conditions": [
+        {
+          "type": "rating",
+          "targetValue": 1,
+          "minRating": "S"
+        }
+      ],
+      "isEnabled": true
+    },
+    {
+      "id": "play_10_songs",
+      "name": "勤勉演奏者",
+      "type": "coin",
+      "value": 1000,
+      "conditions": [
+        {
+          "type": "play_count",
+          "targetValue": 10
+        }
+      ],
+      "isEnabled": true
+    }
+  ],
+  "announcements": [
+    {
+      "id": "welcome_announcement",
+      "title": "欢迎来到浮岛书屋！",
+      "content": "感谢您游玩《浮岛书屋》！在这里，您将通过演奏美妙的音乐来收集散落的诗词，体验独特的国风音乐游戏魅力。\n\n游戏特色：\n• 精美的国风画面\n• 丰富的曲目选择\n• 独特的诗词收集系统\n• 多种难度挑战\n\n祝您游戏愉快！",
+      "type": "success",
+      "priority": 100,
+      "isEnabled": true,
+      "startTime": 1781538103508,
+      "endTime": 1782142903508,
+      "showOnStart": true,
+      "showInGame": false
+    },
+    {
+      "id": "spring_event_announcement",
+      "title": "春日诗会活动开启",
+      "content": "🌸 春日诗会活动正式开启！\n\n活动时间：即日起至活动结束\n\n活动内容：\n• 完成每日任务获取积分\n• 积分可兑换限定奖励\n• 赛季通行证解锁更多内容\n\n快来参与吧！",
+      "type": "info",
+      "priority": 80,
+      "isEnabled": true,
+      "startTime": 1781538103508,
+      "endTime": 1782142903508,
+      "showOnStart": true,
+      "showInGame": true
+    }
+  ],
+  "globalSettings": {
+    "maintenanceMode": false,
+    "forceUpdate": false,
+    "latestClientVersion": "1.0.0"
+  }
+}

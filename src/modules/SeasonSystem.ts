@@ -14,6 +14,7 @@ import {
   RATING_RANK
 } from '../types';
 import { ScoreStorage } from './ScoreStorage';
+import { ConfigSystem } from './ConfigSystem';
 
 const DEFAULT_SEASON_ID = 'season-spring-2026';
 const LEVEL_POINTS_STEP = 500;
@@ -449,11 +450,12 @@ export class SeasonSystem {
     scoreData: ScoreData,
     accuracy: number,
     isPractice: boolean = false
-  ): { pointsGained: number; completedTasks: string[]; isNewWeeklyBest: boolean } {
+  ): { pointsGained: number; completedTasks: string[]; isNewWeeklyBest: boolean; earnedRewards: any[]; activityMultipliers: any[] } {
     if (isPractice) {
-      return { pointsGained: 0, completedTasks: [], isNewWeeklyBest: false };
+      return { pointsGained: 0, completedTasks: [], isNewWeeklyBest: false, earnedRewards: [], activityMultipliers: [] };
     }
 
+    const configSystem = ConfigSystem.getInstance();
     const { playStats } = this.playerState;
 
     playStats.totalPlayCount++;
@@ -473,7 +475,21 @@ export class SeasonSystem {
       this.updateWeeklyRank(songId, songTitle, difficulty, scoreData, accuracy);
     }
 
-    const basePoints = this.calculateScorePoints(scoreData.score, accuracy);
+    let basePoints = this.calculateScorePoints(scoreData.score, accuracy);
+
+    const activeActivities = configSystem.getActiveActivities();
+    const activityMultipliers: any[] = [];
+
+    activeActivities.forEach(activity => {
+      if (activity.type === 'double_reward') {
+        const multiplier = activity.config?.rewardMultiplier || 1;
+        if (multiplier > 1) {
+          activityMultipliers.push({
+          activityName: activity.name, multiplier });
+          basePoints = Math.floor(basePoints * multiplier);
+        }
+      }
+    });
 
     this.updateTaskProgress();
 
@@ -489,7 +505,34 @@ export class SeasonSystem {
       }
     });
 
-    const totalPointsGained = basePoints + taskRewardPoints;
+    let totalPointsGained = basePoints + taskRewardPoints;
+
+    const rewardCheckContext = {
+      songId,
+      difficulty,
+      rating: scoreData.rating,
+      accuracy,
+      combo: scoreData.maxCombo,
+      perfectCount: scoreData.perfect,
+      playCount: playStats.totalPlayCount,
+      isFirstClear: playStats.songPlayCounts[songId] === 1
+    };
+
+    const earnedRewards: any[] = [];
+    const activeRewards = configSystem.getActiveRewards();
+    activeRewards.forEach(reward => {
+      if (configSystem.checkRewardConditions(reward.id, rewardCheckContext)) {
+        if (!this.playerState.claimedRewards.includes(reward.id)) {
+          earnedRewards.push({
+            id: reward.id,
+            name: reward.name,
+            type: reward.type,
+            value: reward.value
+          });
+        }
+      }
+    });
+
     this.playerState.currentPoints += totalPointsGained;
     this.playerState.totalPoints += totalPointsGained;
 
@@ -501,7 +544,9 @@ export class SeasonSystem {
     return {
       pointsGained: totalPointsGained,
       completedTasks: newlyCompletedTasks,
-      isNewWeeklyBest
+      isNewWeeklyBest,
+      earnedRewards,
+      activityMultipliers
     };
   }
 

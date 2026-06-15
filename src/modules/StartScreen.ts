@@ -22,6 +22,7 @@ import { CoverArtManager } from './CoverArtManager';
 import { SeasonSystem } from './SeasonSystem';
 import { FriendBattle } from './FriendBattle';
 import { AudioBeatCalibrator } from './AudioBeatCalibrator';
+import { ConfigSystem } from './ConfigSystem';
 
 const DIFFICULTY_LABELS: Record<Difficulty, string> = {
   easy: '简单',
@@ -101,6 +102,12 @@ export class StartScreen {
   private onAcceptChallengeCallback?: (challengeId: string) => void;
   private onWatchReplayCallback?: (challengeId: string, playerId: string) => void;
 
+  private announcementBanner: PIXI.Container;
+  private activityBanner: PIXI.Container;
+  private announcementIndex: number = 0;
+  private announcementTimer?: number;
+  private removeConfigChangeListener?: () => void;
+
   private replayViewerPanel: PIXI.Container;
   private replaySimulator?: import('./FriendBattle').ReplaySimulator;
   private replayCurrentTime: number = 0;
@@ -155,6 +162,8 @@ export class StartScreen {
   private createScreen(): void {
     this.createBackground();
     this.createTitle();
+    this.createAnnouncementBanner();
+    this.createActivityBanner();
     this.createSongNavigation();
     this.createCoverArtDisplay();
     this.createSongInfo();
@@ -3995,6 +4004,12 @@ export class StartScreen {
   }
 
   public destroy(): void {
+    if (this.announcementTimer) {
+      clearInterval(this.announcementTimer);
+    }
+    if (this.removeConfigChangeListener) {
+      this.removeConfigChangeListener();
+    }
     if (this.removeLibraryListener) {
       this.removeLibraryListener();
     }
@@ -5134,6 +5149,177 @@ export class StartScreen {
     return btn;
   }
 
+  private createAnnouncementBanner(): void {
+    this.announcementBanner = new PIXI.Container();
+    this.announcementBanner.x = this.app.screen.width / 2;
+    this.announcementBanner.y = 108;
+
+    this.updateAnnouncementBanner();
+    this.container.addChild(this.announcementBanner);
+
+    this.announcementTimer = window.setInterval(() => {
+      this.rotateAnnouncement();
+    }, 5000);
+  }
+
+  private updateAnnouncementBanner(): void {
+    this.announcementBanner.removeChildren();
+
+    const configSystem = ConfigSystem.getInstance();
+    const announcements = configSystem.getActiveAnnouncements(false);
+
+    if (announcements.length === 0) {
+      return;
+    }
+
+    if (this.announcementIndex >= announcements.length) {
+      this.announcementIndex = 0;
+    }
+
+    const announcement = announcements[this.announcementIndex];
+    const bannerWidth = Math.min(600, this.app.screen.width - 80);
+    const bannerHeight = 36;
+
+    const typeColors: Record<string, number> = {
+      info: 0x6b9dff,
+      success: 0x6bff9d,
+      warning: 0xffd700,
+      urgent: 0xff6b6b
+    };
+
+    const bg = new PIXI.Graphics();
+    bg.beginFill(0x000000, 0.7);
+    bg.lineStyle(1.5, typeColors[announcement.type] || 0x6b9dff, 0.8);
+    bg.drawRoundedRect(-bannerWidth / 2, -bannerHeight / 2, bannerWidth, bannerHeight, 8);
+    bg.endFill();
+    this.announcementBanner.addChild(bg);
+
+    const textStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 13,
+      fill: 0xffffff,
+      align: 'center',
+      wordWrap: true,
+      wordWrapWidth: bannerWidth - 30
+    });
+
+    const typeLabels: Record<string, string> = {
+      info: '📢',
+      success: '✅',
+      warning: '⚠️',
+      urgent: '🚨'
+    };
+
+    const textContent = `${typeLabels[announcement.type] || '📢'} ${announcement.title}`;
+    const text = new PIXI.Text(textContent, textStyle);
+    text.anchor.set(0.5);
+    this.announcementBanner.addChild(text);
+
+    const counterStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 10,
+      fill: 0xaaaaaa
+    });
+
+    if (announcements.length > 1) {
+      const counter = new PIXI.Text(`${this.announcementIndex + 1}/${announcements.length}`, counterStyle);
+      counter.anchor.set(1, 0.5);
+      counter.x = bannerWidth / 2 - 10;
+      this.announcementBanner.addChild(counter);
+    }
+
+    this.announcementBanner.interactive = true;
+    this.announcementBanner.cursor = 'pointer';
+    this.announcementBanner.on('pointerdown', () => {
+      this.showAnnouncementDetail(announcement);
+    });
+  }
+
+  private rotateAnnouncement(): void {
+    const configSystem = ConfigSystem.getInstance();
+    const announcements = configSystem.getActiveAnnouncements(false);
+    if (announcements.length > 1) {
+      this.announcementIndex = (this.announcementIndex + 1) % announcements.length;
+      this.updateAnnouncementBanner();
+    }
+  }
+
+  private showAnnouncementDetail(announcement: any): void {
+    console.log('显示公告详情:', announcement);
+  }
+
+  private createActivityBanner(): void {
+    this.activityBanner = new PIXI.Container();
+    this.activityBanner.x = this.app.screen.width - 80;
+    this.activityBanner.y = 108;
+
+    this.updateActivityBanner();
+    this.container.addChild(this.activityBanner);
+  }
+
+  private updateActivityBanner(): void {
+    this.activityBanner.removeChildren();
+
+    const configSystem = ConfigSystem.getInstance();
+    const activities = configSystem.getActiveActivities();
+
+    if (activities.length === 0) {
+      return;
+    }
+
+    const activity = activities[0];
+    const bannerWidth = 140;
+    const bannerHeight = 60;
+
+    const bg = new PIXI.Graphics();
+    bg.beginFill(0x1a3a2a, 0.85);
+    bg.lineStyle(2, 0x6bff9d, 0.7);
+    bg.drawRoundedRect(-bannerWidth / 2, -bannerHeight / 2, bannerWidth, bannerHeight, 10);
+    bg.endFill();
+    this.activityBanner.addChild(bg);
+
+    const iconStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 18,
+      fill: 0xffffff,
+      align: 'center'
+    });
+
+    const typeIcons: Record<string, string> = {
+      double_reward: '🎁',
+      limited_song: '🎵',
+      season: '🏆',
+      login_bonus: '📅',
+      special_event: '✨'
+    };
+
+    const icon = new PIXI.Text(typeIcons[activity.type] || '🎉', iconStyle);
+    icon.anchor.set(0.5);
+    icon.y = -14;
+    this.activityBanner.addChild(icon);
+
+    const textStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 11,
+      fill: 0x6bff9d,
+      fontWeight: 'bold',
+      align: 'center'
+    });
+
+    const nameText = new PIXI.Text(activity.name.substring(0, 8), textStyle);
+    nameText.anchor.set(0.5);
+    nameText.y = 8;
+    this.activityBanner.addChild(nameText);
+
+    this.activityBanner.interactive = true;
+    this.activityBanner.cursor = 'pointer';
+    this.activityBanner.on('pointerdown', () => {
+      this.seasonPanelVisible = true;
+      this.updateSeasonPanelTabs();
+      this.updateSeasonContent();
+    });
+  }
+
   private setupConfigChangeListener(): void {
     this.inputConfigManager.addChangeListener(() => {
       this.updateKeyBindingButtons();
@@ -5142,6 +5328,14 @@ export class StartScreen {
       if (this.settingsVisible && this.settingsTab === 'keys') {
         this.updateSettingsContent();
       }
+    });
+
+    this.removeConfigChangeListener = ConfigSystem.getInstance().addChangeListener(() => {
+      this.announcementIndex = 0;
+      this.updateAnnouncementBanner();
+      this.updateActivityBanner();
+      this.refreshLibraryEntries();
+      this.updateSongInfo();
     });
   }
 

@@ -19,6 +19,7 @@ import {
 import { CoverArtManager } from './CoverArtManager';
 import { ScoreStorage } from './ScoreStorage';
 import { ChapterUnlockManager } from './ChapterUnlockManager';
+import { ConfigSystem } from './ConfigSystem';
 
 const FAVORITES_STORAGE_KEY = 'floating-island-bookstore-favorites';
 const RECENT_STORAGE_KEY = 'floating-island-bookstore-recent';
@@ -211,11 +212,53 @@ export class SongLibrary {
   }
 
   public getAllSongs(): SongChartEntry[] {
-    return Array.from(this.songs.values()).sort((a, b) => a.sortOrder - b.sortOrder);
+    const configSystem = ConfigSystem.getInstance();
+    const allSongs = Array.from(this.songs.values());
+    const songsWithConfigApplied = allSongs.map(song => {
+      const songConfig = configSystem.getSongConfig(song.metadata.id);
+      if (songConfig) {
+        if (songConfig.sortPriority !== undefined && songConfig.sortPriority !== song.sortOrder) {
+          song.sortOrder = this.songs.size - songConfig.sortPriority;
+        }
+        if (songConfig.isNew !== undefined) {
+          if (songConfig.isNew) {
+            this.newSongs.add(song.metadata.id);
+          }
+        }
+        if (songConfig.tags && songConfig.tags.length > 0) {
+          const existingTags = new Set(song.metadata.tags);
+          songConfig.tags.forEach(t => existingTags.add(t));
+          song.metadata.tags = Array.from(existingTags);
+        }
+        song.isActive = configSystem.isSongOnline(song.metadata.id);
+      }
+      return song;
+    });
+    return songsWithConfigApplied.sort((a, b) => {
+      const configA = configSystem.getSongConfig(a.metadata.id);
+      const configB = configSystem.getSongConfig(b.metadata.id);
+      const priorityA = configA?.sortPriority ?? 0;
+      const priorityB = configB?.sortPriority ?? 0;
+      if (priorityB !== priorityA) {
+        return priorityB - priorityA;
+      }
+      return a.sortOrder - b.sortOrder;
+    });
   }
 
   public getActiveSongs(): SongChartEntry[] {
-    return this.getAllSongs().filter(s => s.isActive);
+    const configSystem = ConfigSystem.getInstance();
+    const onlineSongIds = new Set(configSystem.getOnlineSongs());
+    return this.getAllSongs().filter(s => 
+      s.isActive && (onlineSongIds.size === 0 || onlineSongIds.has(s.metadata.id))
+    );
+  }
+
+  public isSongOnline(songId: string): boolean {
+    const configSystem = ConfigSystem.getInstance();
+    const song = this.songs.get(songId);
+    if (!song || !song.isActive) return false;
+    return configSystem.isSongOnline(songId);
   }
 
   public getNotesForDifficulty(song: SongChartEntry, difficulty: Difficulty): NoteData[] {

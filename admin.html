@@ -1081,22 +1081,56 @@
       };
     }
 
-    function loadConfig() {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        try {
-          currentConfig = JSON.parse(stored);
-          showToast('配置加载成功', 'success');
-        } catch (e) {
-          currentConfig = generateDefaultConfig();
-          showToast('配置解析失败，使用默认配置', 'error');
+    async function apiRequest(url, method = 'GET', data = null) {
+      try {
+        const options = {
+          method,
+          headers: { 'Content-Type': 'application/json' }
+        };
+        if (data) {
+          options.body = JSON.stringify(data);
         }
-      } else {
-        currentConfig = generateDefaultConfig();
-        saveConfigToStorage();
-        showToast('未找到配置，已生成默认配置', 'info');
+        const response = await fetch(url, options);
+        const result = await response.json();
+        if (!response.ok) {
+          throw new Error(result.message || `HTTP ${response.status}`);
+        }
+        return result;
+      } catch (e) {
+        console.error(`API Error ${method} ${url}:`, e);
+        throw e;
       }
-      updateAllViews();
+    }
+
+    async function loadConfig() {
+      showLoadingIndicator(true);
+      try {
+        const result = await apiRequest('/api/config');
+        if (result.success && result.data) {
+          currentConfig = result.data;
+          updateAllViews();
+          showToast('从服务器加载配置成功', 'success');
+        } else {
+          throw new Error(result.message || '加载配置失败');
+        }
+      } catch (e) {
+        const stored = localStorage.getItem(STORAGE_KEY);
+        if (stored) {
+          try {
+            currentConfig = JSON.parse(stored);
+            showToast('服务器连接失败，使用本地缓存配置', 'error');
+          } catch (e2) {
+            currentConfig = generateDefaultConfig();
+            showToast('服务器连接失败，使用默认配置', 'error');
+          }
+        } else {
+          currentConfig = generateDefaultConfig();
+          showToast('服务器连接失败，使用默认配置', 'error');
+        }
+        updateAllViews();
+      } finally {
+        showLoadingIndicator(false);
+      }
     }
 
     function saveConfigToStorage() {
@@ -1106,7 +1140,7 @@
       }
     }
 
-    function saveConfig() {
+    async function saveConfig() {
       if (!currentConfig) return;
       
       currentConfig.version = parseInt(document.getElementById('settingVersion').value) || 1;
@@ -1118,9 +1152,36 @@
       currentConfig.globalSettings.latestClientVersion = document.getElementById('latestClientVersion').value;
       currentConfig.globalSettings.updateUrl = document.getElementById('updateUrl').value;
       
-      saveConfigToStorage();
-      updateAllViews();
-      showToast('配置已保存', 'success');
+      showLoadingIndicator(true);
+      try {
+        const result = await apiRequest('/api/config', 'PUT', currentConfig);
+        if (result.success && result.data) {
+          currentConfig = result.data;
+          saveConfigToStorage();
+          updateAllViews();
+          showToast(`配置已保存到服务器，版本: ${result.data.versionName}`, 'success');
+        } else {
+          throw new Error(result.message || '保存失败');
+        }
+      } catch (e) {
+        saveConfigToStorage();
+        updateAllViews();
+        showToast(`保存到服务器失败，已保存到本地: ${e.message}`, 'error');
+      } finally {
+        showLoadingIndicator(false);
+      }
+    }
+
+    function showLoadingIndicator(show) {
+      const badge = document.getElementById('versionBadge');
+      if (!badge) return;
+      if (show) {
+        badge.style.opacity = '0.5';
+        badge.textContent = '加载中...';
+      } else if (currentConfig) {
+        badge.style.opacity = '1';
+        badge.textContent = 'v' + currentConfig.versionName;
+      }
     }
 
     function updateAllViews() {
@@ -1364,7 +1425,7 @@
       openModal('songModal');
     }
 
-    function saveSong() {
+    async function saveSong() {
       const songId = document.getElementById('songId').value.trim();
       const editId = document.getElementById('editSongId').value;
       
@@ -1389,41 +1450,85 @@
         offlineTime: document.getElementById('songOfflineTime').value ? new Date(document.getElementById('songOfflineTime').value).getTime() : undefined
       };
 
-      if (editId) {
-        const index = currentConfig.songs.findIndex(s => s.songId === editId);
-        if (index !== -1) {
-          currentConfig.songs[index] = songConfig;
+      showLoadingIndicator(true);
+      try {
+        const result = await apiRequest('/api/config/songs', 'PUT', songConfig);
+        if (result.success && result.data) {
+          currentConfig = result.data;
+          saveConfigToStorage();
+          updateAllViews();
+          closeModal('songModal');
+          showToast('曲目配置已保存到服务器', 'success');
+        } else {
+          throw new Error(result.message || '保存失败');
         }
-      } else {
-        currentConfig.songs.push(songConfig);
+      } catch (e) {
+        if (editId) {
+          const index = currentConfig.songs.findIndex(s => s.songId === editId);
+          if (index !== -1) currentConfig.songs[index] = songConfig;
+        } else {
+          currentConfig.songs.push(songConfig);
+        }
+        saveConfigToStorage();
+        updateAllViews();
+        closeModal('songModal');
+        showToast(`保存到服务器失败，已保存到本地: ${e.message}`, 'error');
+      } finally {
+        showLoadingIndicator(false);
       }
-
-      saveConfigToStorage();
-      updateAllViews();
-      closeModal('songModal');
-      showToast('曲目配置已保存', 'success');
     }
 
     function editSong(songId) {
       showSongModal(songId);
     }
 
-    function toggleSongStatus(songId) {
+    async function toggleSongStatus(songId) {
       const song = currentConfig.songs.find(s => s.songId === songId);
       if (song) {
-        song.isOnline = !song.isOnline;
-        saveConfigToStorage();
-        updateAllViews();
-        showToast(`曲目已${song.isOnline ? '上线' : '下线'}`, 'success');
+        const newStatus = !song.isOnline;
+        showLoadingIndicator(true);
+        try {
+          const result = await apiRequest('/api/config/songs', 'PUT', { songId, isOnline: newStatus });
+          if (result.success && result.data) {
+            currentConfig = result.data;
+            saveConfigToStorage();
+            updateAllViews();
+            showToast(`曲目已${newStatus ? '上线' : '下线'}`, 'success');
+          } else {
+            throw new Error(result.message || '操作失败');
+          }
+        } catch (e) {
+          song.isOnline = newStatus;
+          saveConfigToStorage();
+          updateAllViews();
+          showToast(`服务器操作失败，本地已${newStatus ? '上线' : '下线'}`, 'error');
+        } finally {
+          showLoadingIndicator(false);
+        }
       }
     }
 
-    function deleteSong(songId) {
-      if (confirm('确定要删除这个曲目配置吗？')) {
+    async function deleteSong(songId) {
+      if (!confirm('确定要删除这个曲目配置吗？')) return;
+      
+      showLoadingIndicator(true);
+      try {
+        const result = await apiRequest(`/api/config/songs/${songId}`, 'DELETE');
+        if (result.success && result.data) {
+          currentConfig = result.data;
+          saveConfigToStorage();
+          updateAllViews();
+          showToast('曲目配置已从服务器删除', 'success');
+        } else {
+          throw new Error(result.message || '删除失败');
+        }
+      } catch (e) {
         currentConfig.songs = currentConfig.songs.filter(s => s.songId !== songId);
         saveConfigToStorage();
         updateAllViews();
-        showToast('曲目配置已删除', 'success');
+        showToast(`服务器删除失败，本地已删除: ${e.message}`, 'error');
+      } finally {
+        showLoadingIndicator(false);
       }
     }
 
@@ -1462,7 +1567,7 @@
       openModal('activityModal');
     }
 
-    function saveActivity() {
+    async function saveActivity() {
       const activityId = document.getElementById('activityId').value.trim();
       const editId = document.getElementById('editActivityId').value;
       
@@ -1487,8 +1592,8 @@
         return;
       }
 
-      const activityConfig = {
-        id: activityId,
+      const activityConfigData = {
+        activityId: activityId,
         name: document.getElementById('activityName').value.trim(),
         description: document.getElementById('activityDescription').value.trim(),
         type: document.getElementById('activityType').value,
@@ -1498,41 +1603,87 @@
         config: config
       };
 
-      if (editId) {
-        const index = currentConfig.activities.findIndex(a => a.id === editId);
-        if (index !== -1) {
-          currentConfig.activities[index] = activityConfig;
+      showLoadingIndicator(true);
+      try {
+        const result = await apiRequest('/api/config/activities', 'PUT', activityConfigData);
+        if (result.success && result.data) {
+          currentConfig = result.data;
+          saveConfigToStorage();
+          updateAllViews();
+          closeModal('activityModal');
+          showToast('活动已保存到服务器', 'success');
+        } else {
+          throw new Error(result.message || '保存失败');
         }
-      } else {
-        currentConfig.activities.push(activityConfig);
+      } catch (e) {
+        const fullConfig = { id: activityId, ...activityConfigData };
+        delete fullConfig.activityId;
+        if (editId) {
+          const index = currentConfig.activities.findIndex(a => a.id === editId);
+          if (index !== -1) currentConfig.activities[index] = fullConfig;
+        } else {
+          currentConfig.activities.push(fullConfig);
+        }
+        saveConfigToStorage();
+        updateAllViews();
+        closeModal('activityModal');
+        showToast(`保存到服务器失败，已保存到本地: ${e.message}`, 'error');
+      } finally {
+        showLoadingIndicator(false);
       }
-
-      saveConfigToStorage();
-      updateAllViews();
-      closeModal('activityModal');
-      showToast('活动已保存', 'success');
     }
 
     function editActivity(activityId) {
       showActivityModal(activityId);
     }
 
-    function toggleActivityStatus(activityId) {
+    async function toggleActivityStatus(activityId) {
       const activity = currentConfig.activities.find(a => a.id === activityId);
       if (activity) {
-        activity.isEnabled = !activity.isEnabled;
-        saveConfigToStorage();
-        updateAllViews();
-        showToast(`活动已${activity.isEnabled ? '启用' : '禁用'}`, 'success');
+        const newStatus = !activity.isEnabled;
+        showLoadingIndicator(true);
+        try {
+          const result = await apiRequest('/api/config/activities', 'PUT', { activityId, isEnabled: newStatus });
+          if (result.success && result.data) {
+            currentConfig = result.data;
+            saveConfigToStorage();
+            updateAllViews();
+            showToast(`活动已${newStatus ? '启用' : '禁用'}`, 'success');
+          } else {
+            throw new Error(result.message || '操作失败');
+          }
+        } catch (e) {
+          activity.isEnabled = newStatus;
+          saveConfigToStorage();
+          updateAllViews();
+          showToast(`服务器操作失败，本地已${newStatus ? '启用' : '禁用'}`, 'error');
+        } finally {
+          showLoadingIndicator(false);
+        }
       }
     }
 
-    function deleteActivity(activityId) {
-      if (confirm('确定要删除这个活动吗？')) {
+    async function deleteActivity(activityId) {
+      if (!confirm('确定要删除这个活动吗？')) return;
+      
+      showLoadingIndicator(true);
+      try {
+        const result = await apiRequest(`/api/config/activities/${activityId}`, 'DELETE');
+        if (result.success && result.data) {
+          currentConfig = result.data;
+          saveConfigToStorage();
+          updateAllViews();
+          showToast('活动已从服务器删除', 'success');
+        } else {
+          throw new Error(result.message || '删除失败');
+        }
+      } catch (e) {
         currentConfig.activities = currentConfig.activities.filter(a => a.id !== activityId);
         saveConfigToStorage();
         updateAllViews();
-        showToast('活动已删除', 'success');
+        showToast(`服务器删除失败，本地已删除: ${e.message}`, 'error');
+      } finally {
+        showLoadingIndicator(false);
       }
     }
 
@@ -1589,8 +1740,8 @@
         return;
       }
 
-      const rewardConfig = {
-        id: rewardId,
+      const rewardData = {
+        rewardId: rewardId,
         name: document.getElementById('rewardName').value.trim(),
         type: document.getElementById('rewardType').value,
         value: parseInt(document.getElementById('rewardValue').value) || 0,
@@ -1598,41 +1749,87 @@
         conditions: conditions
       };
 
-      if (editId) {
-        const index = currentConfig.rewards.findIndex(r => r.id === editId);
-        if (index !== -1) {
-          currentConfig.rewards[index] = rewardConfig;
+      showLoadingIndicator(true);
+      try {
+        const result = await apiRequest('/api/config/rewards', 'PUT', rewardData);
+        if (result.success && result.data) {
+          currentConfig = result.data;
+          saveConfigToStorage();
+          updateAllViews();
+          closeModal('rewardModal');
+          showToast('奖励已保存到服务器', 'success');
+        } else {
+          throw new Error(result.message || '保存失败');
         }
-      } else {
-        currentConfig.rewards.push(rewardConfig);
+      } catch (e) {
+        const fullReward = { id: rewardId, ...rewardData };
+        delete fullReward.rewardId;
+        if (editId) {
+          const index = currentConfig.rewards.findIndex(r => r.id === editId);
+          if (index !== -1) currentConfig.rewards[index] = fullReward;
+        } else {
+          currentConfig.rewards.push(fullReward);
+        }
+        saveConfigToStorage();
+        updateAllViews();
+        closeModal('rewardModal');
+        showToast(`保存到服务器失败，已保存到本地: ${e.message}`, 'error');
+      } finally {
+        showLoadingIndicator(false);
       }
-
-      saveConfigToStorage();
-      updateAllViews();
-      closeModal('rewardModal');
-      showToast('奖励已保存', 'success');
     }
 
     function editReward(rewardId) {
       showRewardModal(rewardId);
     }
 
-    function toggleRewardStatus(rewardId) {
+    async function toggleRewardStatus(rewardId) {
       const reward = currentConfig.rewards.find(r => r.id === rewardId);
       if (reward) {
-        reward.isEnabled = !reward.isEnabled;
-        saveConfigToStorage();
-        updateAllViews();
-        showToast(`奖励已${reward.isEnabled ? '启用' : '禁用'}`, 'success');
+        const newStatus = !reward.isEnabled;
+        showLoadingIndicator(true);
+        try {
+          const result = await apiRequest('/api/config/rewards', 'PUT', { rewardId, isEnabled: newStatus });
+          if (result.success && result.data) {
+            currentConfig = result.data;
+            saveConfigToStorage();
+            updateAllViews();
+            showToast(`奖励已${newStatus ? '启用' : '禁用'}`, 'success');
+          } else {
+            throw new Error(result.message || '操作失败');
+          }
+        } catch (e) {
+          reward.isEnabled = newStatus;
+          saveConfigToStorage();
+          updateAllViews();
+          showToast(`服务器操作失败，本地已${newStatus ? '启用' : '禁用'}`, 'error');
+        } finally {
+          showLoadingIndicator(false);
+        }
       }
     }
 
-    function deleteReward(rewardId) {
-      if (confirm('确定要删除这个奖励吗？')) {
+    async function deleteReward(rewardId) {
+      if (!confirm('确定要删除这个奖励吗？')) return;
+      
+      showLoadingIndicator(true);
+      try {
+        const result = await apiRequest(`/api/config/rewards/${rewardId}`, 'DELETE');
+        if (result.success && result.data) {
+          currentConfig = result.data;
+          saveConfigToStorage();
+          updateAllViews();
+          showToast('奖励已从服务器删除', 'success');
+        } else {
+          throw new Error(result.message || '删除失败');
+        }
+      } catch (e) {
         currentConfig.rewards = currentConfig.rewards.filter(r => r.id !== rewardId);
         saveConfigToStorage();
         updateAllViews();
-        showToast('奖励已删除', 'success');
+        showToast(`服务器删除失败，本地已删除: ${e.message}`, 'error');
+      } finally {
+        showLoadingIndicator(false);
       }
     }
 
@@ -1689,8 +1886,8 @@
         return;
       }
 
-      const announcementConfig = {
-        id: announcementId,
+      const announcementData = {
+        announcementId: announcementId,
         title: document.getElementById('announcementTitle').value.trim(),
         content: document.getElementById('announcementContent').value.trim(),
         type: document.getElementById('announcementType').value,
@@ -1702,41 +1899,87 @@
         endTime: new Date(document.getElementById('announcementEndTime').value).getTime()
       };
 
-      if (editId) {
-        const index = currentConfig.announcements.findIndex(a => a.id === editId);
-        if (index !== -1) {
-          currentConfig.announcements[index] = announcementConfig;
+      showLoadingIndicator(true);
+      try {
+        const result = await apiRequest('/api/config/announcements', 'PUT', announcementData);
+        if (result.success && result.data) {
+          currentConfig = result.data;
+          saveConfigToStorage();
+          updateAllViews();
+          closeModal('announcementModal');
+          showToast('公告已保存到服务器', 'success');
+        } else {
+          throw new Error(result.message || '保存失败');
         }
-      } else {
-        currentConfig.announcements.push(announcementConfig);
+      } catch (e) {
+        const fullAnnouncement = { id: announcementId, ...announcementData };
+        delete fullAnnouncement.announcementId;
+        if (editId) {
+          const index = currentConfig.announcements.findIndex(a => a.id === editId);
+          if (index !== -1) currentConfig.announcements[index] = fullAnnouncement;
+        } else {
+          currentConfig.announcements.push(fullAnnouncement);
+        }
+        saveConfigToStorage();
+        updateAllViews();
+        closeModal('announcementModal');
+        showToast(`保存到服务器失败，已保存到本地: ${e.message}`, 'error');
+      } finally {
+        showLoadingIndicator(false);
       }
-
-      saveConfigToStorage();
-      updateAllViews();
-      closeModal('announcementModal');
-      showToast('公告已保存', 'success');
     }
 
     function editAnnouncement(announcementId) {
       showAnnouncementModal(announcementId);
     }
 
-    function toggleAnnouncementStatus(announcementId) {
+    async function toggleAnnouncementStatus(announcementId) {
       const announcement = currentConfig.announcements.find(a => a.id === announcementId);
       if (announcement) {
-        announcement.isEnabled = !announcement.isEnabled;
-        saveConfigToStorage();
-        updateAllViews();
-        showToast(`公告已${announcement.isEnabled ? '启用' : '禁用'}`, 'success');
+        const newStatus = !announcement.isEnabled;
+        showLoadingIndicator(true);
+        try {
+          const result = await apiRequest('/api/config/announcements', 'PUT', { announcementId, isEnabled: newStatus });
+          if (result.success && result.data) {
+            currentConfig = result.data;
+            saveConfigToStorage();
+            updateAllViews();
+            showToast(`公告已${newStatus ? '启用' : '禁用'}`, 'success');
+          } else {
+            throw new Error(result.message || '操作失败');
+          }
+        } catch (e) {
+          announcement.isEnabled = newStatus;
+          saveConfigToStorage();
+          updateAllViews();
+          showToast(`服务器操作失败，本地已${newStatus ? '启用' : '禁用'}`, 'error');
+        } finally {
+          showLoadingIndicator(false);
+        }
       }
     }
 
-    function deleteAnnouncement(announcementId) {
-      if (confirm('确定要删除这个公告吗？')) {
+    async function deleteAnnouncement(announcementId) {
+      if (!confirm('确定要删除这个公告吗？')) return;
+      
+      showLoadingIndicator(true);
+      try {
+        const result = await apiRequest(`/api/config/announcements/${announcementId}`, 'DELETE');
+        if (result.success && result.data) {
+          currentConfig = result.data;
+          saveConfigToStorage();
+          updateAllViews();
+          showToast('公告已从服务器删除', 'success');
+        } else {
+          throw new Error(result.message || '删除失败');
+        }
+      } catch (e) {
         currentConfig.announcements = currentConfig.announcements.filter(a => a.id !== announcementId);
         saveConfigToStorage();
         updateAllViews();
-        showToast('公告已删除', 'success');
+        showToast(`服务器删除失败，本地已删除: ${e.message}`, 'error');
+      } finally {
+        showLoadingIndicator(false);
       }
     }
 
@@ -1745,7 +1988,7 @@
       openModal('importModal');
     }
 
-    function importConfig() {
+    async function importConfig() {
       try {
         const jsonStr = document.getElementById('importJson').value.trim();
         if (!jsonStr) {
@@ -1760,12 +2003,28 @@
           return;
         }
 
-        if (confirm('导入将覆盖现有配置，确定继续吗？')) {
+        if (!confirm('导入将覆盖现有配置，确定继续吗？')) return;
+
+        showLoadingIndicator(true);
+        try {
+          const result = await apiRequest('/api/config', 'PUT', config);
+          if (result.success && result.data) {
+            currentConfig = result.data;
+            saveConfigToStorage();
+            updateAllViews();
+            closeModal('importModal');
+            showToast('配置已导入并同步到服务器', 'success');
+          } else {
+            throw new Error(result.message || '导入失败');
+          }
+        } catch (e) {
           currentConfig = config;
           saveConfigToStorage();
           updateAllViews();
           closeModal('importModal');
-          showToast('配置导入成功', 'success');
+          showToast(`服务器导入失败，本地已导入: ${e.message}`, 'error');
+        } finally {
+          showLoadingIndicator(false);
         }
       } catch (e) {
         showToast('JSON格式错误: ' + e.message, 'error');
@@ -1799,12 +2058,27 @@
       });
     }
 
-    function resetConfig() {
-      if (confirm('确定要重置为默认配置吗？这将覆盖所有修改。')) {
+    async function resetConfig() {
+      if (!confirm('确定要重置为默认配置吗？这将覆盖所有修改。')) return;
+      
+      showLoadingIndicator(true);
+      try {
+        const result = await apiRequest('/api/config/reset', 'POST');
+        if (result.success && result.data) {
+          currentConfig = result.data;
+          saveConfigToStorage();
+          updateAllViews();
+          showToast('已从服务器重置为默认配置', 'success');
+        } else {
+          throw new Error(result.message || '重置失败');
+        }
+      } catch (e) {
         currentConfig = generateDefaultConfig();
         saveConfigToStorage();
         updateAllViews();
-        showToast('已重置为默认配置', 'success');
+        showToast(`服务器重置失败，本地已重置: ${e.message}`, 'error');
+      } finally {
+        showLoadingIndicator(false);
       }
     }
 
