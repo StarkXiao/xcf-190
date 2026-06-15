@@ -1468,3 +1468,88 @@ export const CALIBRATION_TAP_COUNT = 10;
 export const CALIBRATION_BEAT_INTERVAL = 500;
 export const CALIBRATION_MAX_OFFSET_MS = 300;
 export const CALIBRATION_CONFIDENCE_THRESHOLD = 0.7;
+
+export interface SongOnlineConfig {
+  songId: string;
+  isOnline: boolean;
+  onlineTime?: number;
+  offlineTime?: number;
+  sortPriority: number;
+  isNew: boolean;
+  isHot: boolean;
+  tags: string[];
+}
+
+export interface ActivityConfig {
+  id: string;
+  name: string;
+  description: string;
+  isEnabled: boolean;
+  startTime: number;
+  endTime: number;
+  type: 'double_reward' | 'limited_song' | 'season' | 'login_bonus' | 'special_event';
+  config: Record<string, any>;
+}
+
+export interface RewardConfig {
+  id: string;
+  name: string;
+  type: 'coin' | 'jade' | 'star' | 'cosmetic' | 'title';
+  value: number;
+  conditions: {
+    type: 'play_count' | 'perfect_count' | 'combo' | 'rating' | 'accuracy' | 'first_clear';
+    targetValue: number;
+    songId?: string;
+    difficulty?: Difficulty;
+    minRating?: string;
+    minAccuracy?: number;
+  }[];
+  isEnabled: boolean;
+}
+
+export interface AnnouncementConfig {
+  id: string;
+  title: string;
+  content: string;
+  type: 'info' | 'warning' | 'success' | 'urgent';
+  priority: number;
+  isEnabled: boolean;
+  startTime: number;
+  endTime: number;
+  showOnStart: boolean;
+  showInGame: boolean;
+}
+
+export interface GameConfig {
+  version: number;
+  versionName: string;
+  publishTime: number;
+  minClientVersion?: string;
+  songs: SongOnlineConfig[];
+  activities: ActivityConfig[];
+  rewards: RewardConfig[];
+  announcements: AnnouncementConfig[];
+  globalSettings: {
+    maintenanceMode: boolean;
+    maintenanceMessage?: string;
+    forceUpdate: boolean;
+    latestClientVersion?: string;
+    updateUrl?: string;
+  };
+}
+
+export const GAME_CONFIG_STORAGE_KEY = 'floating-island-bookstore-game-config';
+export const GAME_CONFIG_VERSION_KEY = 'floating-island-bookstore-config-version';
+export const DEFAULT_GAME_CONFIG: GameConfig = {
+  version: 1,
+  versionName: '1.0.0',
+  publishTime: Date.now(),
+  songs: [],
+  activities: [],
+  rewards: [],
+  announcements: [],
+  globalSettings: {
+    maintenanceMode: false,
+    forceUpdate: false
+  }
+};

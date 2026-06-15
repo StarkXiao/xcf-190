@@ -1,0 +1,1913 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>运营配置中心 - 浮岛书屋</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+      background: linear-gradient(135deg, #0a0a1a 0%, #1a1a3a 100%);
+      min-height: 100vh;
+      color: #ffffff;
+    }
+
+    .header {
+      background: rgba(107, 157, 255, 0.1);
+      border-bottom: 1px solid rgba(107, 157, 255, 0.2);
+      padding: 20px 40px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .header h1 {
+      font-size: 24px;
+      color: #6b9dff;
+    }
+
+    .header .subtitle {
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.5);
+      margin-top: 4px;
+    }
+
+    .header .actions {
+      display: flex;
+      gap: 10px;
+    }
+
+    .btn {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      cursor: pointer;
+      transition: all 0.3s;
+      font-family: inherit;
+    }
+
+    .btn-primary {
+      background: #6b9dff;
+      color: #ffffff;
+    }
+
+    .btn-primary:hover {
+      background: #5a8cee;
+    }
+
+    .btn-success {
+      background: #6bff9d;
+      color: #0a1a0a;
+    }
+
+    .btn-success:hover {
+      background: #5aee8c;
+    }
+
+    .btn-warning {
+      background: #ffd700;
+      color: #1a1a0a;
+    }
+
+    .btn-warning:hover {
+      background: #e6c200;
+    }
+
+    .btn-danger {
+      background: #ff6b6b;
+      color: #ffffff;
+    }
+
+    .btn-danger:hover {
+      background: #ee5a5a;
+    }
+
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.1);
+      color: #ffffff;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 20px 40px;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 20px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .tab {
+      padding: 12px 24px;
+      background: transparent;
+      border: none;
+      color: rgba(255, 255, 255, 0.6);
+      font-size: 14px;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: all 0.3s;
+      font-family: inherit;
+    }
+
+    .tab:hover {
+      color: rgba(255, 255, 255, 0.9);
+    }
+
+    .tab.active {
+      color: #6b9dff;
+      border-bottom-color: #6b9dff;
+    }
+
+    .tab-content {
+      display: none;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
+    .card {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .card-title {
+      font-size: 18px;
+      font-weight: 600;
+    }
+
+    .config-summary {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+
+    .summary-item {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+      padding: 16px;
+    }
+
+    .summary-label {
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.5);
+      margin-bottom: 4px;
+    }
+
+    .summary-value {
+      font-size: 24px;
+      font-weight: 600;
+      color: #6b9dff;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    th, td {
+      padding: 12px;
+      text-align: left;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    th {
+      background: rgba(255, 255, 255, 0.02);
+      font-weight: 500;
+      font-size: 13px;
+      color: rgba(255, 255, 255, 0.7);
+    }
+
+    td {
+      font-size: 14px;
+    }
+
+    tr:hover {
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .status-badge {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .status-online {
+      background: rgba(107, 255, 157, 0.2);
+      color: #6bff9d;
+    }
+
+    .status-offline {
+      background: rgba(255, 107, 107, 0.2);
+      color: #ff6b6b;
+    }
+
+    .status-active {
+      background: rgba(107, 157, 255, 0.2);
+      color: #6b9dff;
+    }
+
+    .status-disabled {
+      background: rgba(255, 255, 255, 0.1);
+      color: rgba(255, 255, 255, 0.5);
+    }
+
+    .tag {
+      display: inline-block;
+      padding: 2px 8px;
+      background: rgba(107, 157, 255, 0.2);
+      color: #6b9dff;
+      border-radius: 4px;
+      font-size: 11px;
+      margin-right: 4px;
+    }
+
+    .tag-hot {
+      background: rgba(255, 107, 107, 0.2);
+      color: #ff6b6b;
+    }
+
+    .tag-new {
+      background: rgba(107, 255, 157, 0.2);
+      color: #6bff9d;
+    }
+
+    .action-btns {
+      display: flex;
+      gap: 6px;
+    }
+
+    .action-btn {
+      padding: 4px 10px;
+      font-size: 12px;
+      border-radius: 4px;
+    }
+
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.8);
+      z-index: 1000;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .modal-overlay.active {
+      display: flex;
+    }
+
+    .modal {
+      background: linear-gradient(135deg, #0a0a1a 0%, #1a1a3a 100%);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 16px;
+      padding: 24px;
+      max-width: 600px;
+      width: 90%;
+      max-height: 80vh;
+      overflow-y: auto;
+    }
+
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+
+    .modal-title {
+      font-size: 20px;
+      font-weight: 600;
+    }
+
+    .modal-close {
+      background: none;
+      border: none;
+      color: rgba(255, 255, 255, 0.5);
+      font-size: 24px;
+      cursor: pointer;
+    }
+
+    .form-group {
+      margin-bottom: 16px;
+    }
+
+    .form-label {
+      display: block;
+      font-size: 13px;
+      color: rgba(255, 255, 255, 0.7);
+      margin-bottom: 6px;
+    }
+
+    .form-input, .form-select, .form-textarea {
+      width: 100%;
+      padding: 10px 12px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 6px;
+      color: #ffffff;
+      font-size: 14px;
+      font-family: inherit;
+    }
+
+    .form-input:focus, .form-select:focus, .form-textarea:focus {
+      outline: none;
+      border-color: #6b9dff;
+      background: rgba(107, 157, 255, 0.05);
+    }
+
+    .form-textarea {
+      resize: vertical;
+      min-height: 100px;
+    }
+
+    .form-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .form-switch {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .switch {
+      position: relative;
+      width: 44px;
+      height: 24px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 12px;
+      cursor: pointer;
+      transition: background 0.3s;
+    }
+
+    .switch.active {
+      background: #6b9dff;
+    }
+
+    .switch::after {
+      content: '';
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 20px;
+      height: 20px;
+      background: #ffffff;
+      border-radius: 50%;
+      transition: transform 0.3s;
+    }
+
+    .switch.active::after {
+      transform: translateX(20px);
+    }
+
+    .modal-footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: 24px;
+      padding-top: 16px;
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .global-settings {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 20px;
+    }
+
+    .setting-group {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 8px;
+      padding: 16px;
+    }
+
+    .setting-group h3 {
+      font-size: 14px;
+      margin-bottom: 12px;
+      color: #6b9dff;
+    }
+
+    .json-preview {
+      background: #0a0a0a;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+      padding: 16px;
+      font-family: 'Monaco', 'Menlo', monospace;
+      font-size: 12px;
+      white-space: pre-wrap;
+      word-break: break-all;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+
+    .toast {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      padding: 12px 20px;
+      background: rgba(0, 0, 0, 0.9);
+      border-radius: 8px;
+      font-size: 14px;
+      z-index: 2000;
+      transform: translateY(100px);
+      opacity: 0;
+      transition: all 0.3s;
+    }
+
+    .toast.show {
+      transform: translateY(0);
+      opacity: 1;
+    }
+
+    .toast.success {
+      border-left: 3px solid #6bff9d;
+    }
+
+    .toast.error {
+      border-left: 3px solid #ff6b6b;
+    }
+
+    .toast.info {
+      border-left: 3px solid #6b9dff;
+    }
+
+    .announcement-type-info { color: #6b9dff; }
+    .announcement-type-success { color: #6bff9d; }
+    .announcement-type-warning { color: #ffd700; }
+    .announcement-type-urgent { color: #ff6b6b; }
+
+    .version-info {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .version-badge {
+      background: rgba(107, 255, 157, 0.2);
+      color: #6bff9d;
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 40px;
+      color: rgba(255, 255, 255, 0.4);
+    }
+
+    .empty-state-icon {
+      font-size: 48px;
+      margin-bottom: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <h1>🎮 运营配置中心</h1>
+      <div class="subtitle">浮岛书屋 - 游戏配置管理平台</div>
+    </div>
+    <div class="version-info">
+      <span class="version-badge" id="versionBadge">v1.0.0</span>
+      <div class="actions">
+        <button class="btn btn-secondary" onclick="loadConfig()">🔄 刷新配置</button>
+        <button class="btn btn-primary" onclick="saveConfig()">💾 保存配置</button>
+        <button class="btn btn-success" onclick="exportConfig()">📤 导出JSON</button>
+        <button class="btn btn-warning" onclick="showImportModal()">📥 导入JSON</button>
+        <button class="btn btn-secondary" onclick="window.location.href='index.html'">🎮 返回游戏</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="container">
+    <div class="tabs">
+      <button class="tab active" data-tab="overview">📊 概览</button>
+      <button class="tab" data-tab="songs">🎵 曲目管理</button>
+      <button class="tab" data-tab="activities">🎉 活动管理</button>
+      <button class="tab" data-tab="rewards">🎁 奖励管理</button>
+      <button class="tab" data-tab="announcements">📢 公告管理</button>
+      <button class="tab" data-tab="settings">⚙️ 全局设置</button>
+      <button class="tab" data-tab="json">📋 JSON预览</button>
+    </div>
+
+    <div class="tab-content active" id="tab-overview">
+      <div class="config-summary">
+        <div class="summary-item">
+          <div class="summary-label">配置版本</div>
+          <div class="summary-value" id="overviewVersion">-</div>
+        </div>
+        <div class="summary-item">
+          <div class="summary-label">在线曲目</div>
+          <div class="summary-value" id="overviewSongs">-</div>
+        </div>
+        <div class="summary-item">
+          <div class="summary-label">进行中活动</div>
+          <div class="summary-value" id="overviewActivities">-</div>
+        </div>
+        <div class="summary-item">
+          <div class="summary-label">可用奖励</div>
+          <div class="summary-value" id="overviewRewards">-</div>
+        </div>
+        <div class="summary-item">
+          <div class="summary-label">生效公告</div>
+          <div class="summary-value" id="overviewAnnouncements">-</div>
+        </div>
+        <div class="summary-item">
+          <div class="summary-label">发布时间</div>
+          <div class="summary-value" id="overviewPublishTime">-</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">快速操作</div>
+        </div>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+          <button class="btn btn-primary" onclick="switchTab('songs'); setTimeout(() => showSongModal(), 100)">+ 添加曲目配置</button>
+          <button class="btn btn-success" onclick="switchTab('activities'); setTimeout(() => showActivityModal(), 100)">+ 添加活动</button>
+          <button class="btn btn-warning" onclick="switchTab('rewards'); setTimeout(() => showRewardModal(), 100)">+ 添加奖励</button>
+          <button class="btn btn-danger" onclick="switchTab('announcements'); setTimeout(() => showAnnouncementModal(), 100)">+ 添加公告</button>
+          <button class="btn btn-secondary" onclick="resetConfig()">🔄 重置为默认配置</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="tab-content" id="tab-songs">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">曲目管理</div>
+          <button class="btn btn-primary" onclick="showSongModal()">+ 添加曲目配置</button>
+        </div>
+        <table id="songsTable">
+          <thead>
+            <tr>
+              <th>曲目ID</th>
+              <th>状态</th>
+              <th>排序优先级</th>
+              <th>标签</th>
+              <th>上线时间</th>
+              <th>下线时间</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="tab-content" id="tab-activities">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">活动管理</div>
+          <button class="btn btn-primary" onclick="showActivityModal()">+ 添加活动</button>
+        </div>
+        <table id="activitiesTable">
+          <thead>
+            <tr>
+              <th>活动ID</th>
+              <th>活动名称</th>
+              <th>类型</th>
+              <th>状态</th>
+              <th>开始时间</th>
+              <th>结束时间</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="tab-content" id="tab-rewards">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">奖励管理</div>
+          <button class="btn btn-primary" onclick="showRewardModal()">+ 添加奖励</button>
+        </div>
+        <table id="rewardsTable">
+          <thead>
+            <tr>
+              <th>奖励ID</th>
+              <th>奖励名称</th>
+              <th>类型</th>
+              <th>数值</th>
+              <th>状态</th>
+              <th>条件</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="tab-content" id="tab-announcements">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">公告管理</div>
+          <button class="btn btn-primary" onclick="showAnnouncementModal()">+ 添加公告</button>
+        </div>
+        <table id="announcementsTable">
+          <thead>
+            <tr>
+              <th>公告ID</th>
+              <th>标题</th>
+              <th>类型</th>
+              <th>优先级</th>
+              <th>状态</th>
+              <th>显示位置</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="tab-content" id="tab-settings">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">全局设置</div>
+        </div>
+        <div class="global-settings">
+          <div class="setting-group">
+            <h3>基础配置</h3>
+            <div class="form-group">
+              <label class="form-label">配置版本号</label>
+              <input type="number" class="form-input" id="settingVersion" value="1">
+            </div>
+            <div class="form-group">
+              <label class="form-label">版本名称</label>
+              <input type="text" class="form-input" id="settingVersionName" value="1.0.0">
+            </div>
+            <div class="form-group">
+              <label class="form-label">最低客户端版本</label>
+              <input type="text" class="form-input" id="settingMinClientVersion" value="1.0.0">
+            </div>
+          </div>
+          <div class="setting-group">
+            <h3>维护设置</h3>
+            <div class="form-group">
+              <label class="form-switch">
+                <div class="switch" id="maintenanceSwitch" onclick="toggleSwitch(this)"></div>
+                <span>维护模式</span>
+              </label>
+            </div>
+            <div class="form-group">
+              <label class="form-label">维护公告内容</label>
+              <textarea class="form-textarea" id="maintenanceMessage" placeholder="请输入维护公告内容..."></textarea>
+            </div>
+          </div>
+          <div class="setting-group">
+            <h3>更新设置</h3>
+            <div class="form-group">
+              <label class="form-switch">
+                <div class="switch" id="forceUpdateSwitch" onclick="toggleSwitch(this)"></div>
+                <span>强制更新</span>
+              </label>
+            </div>
+            <div class="form-group">
+              <label class="form-label">最新客户端版本</label>
+              <input type="text" class="form-input" id="latestClientVersion" value="1.0.0">
+            </div>
+            <div class="form-group">
+              <label class="form-label">更新链接</label>
+              <input type="text" class="form-input" id="updateUrl" placeholder="https://...">
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tab-content" id="tab-json">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">配置JSON预览</div>
+          <div style="display: flex; gap: 10px;">
+            <button class="btn btn-secondary" onclick="copyJson()">📋 复制到剪贴板</button>
+            <button class="btn btn-primary" onclick="refreshJsonPreview()">🔄 刷新</button>
+          </div>
+        </div>
+        <div class="json-preview" id="jsonPreview"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="songModal">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title" id="songModalTitle">添加曲目配置</div>
+        <button class="modal-close" onclick="closeModal('songModal')">&times;</button>
+      </div>
+      <input type="hidden" id="editSongId">
+      <div class="form-group">
+        <label class="form-label">曲目ID *</label>
+        <input type="text" class="form-input" id="songId" placeholder="例如: love-poem">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-switch">
+            <div class="switch" id="songOnlineSwitch" onclick="toggleSwitch(this)"></div>
+            <span>上线状态</span>
+          </label>
+        </div>
+        <div class="form-group">
+          <label class="form-label">排序优先级</label>
+          <input type="number" class="form-input" id="songSortPriority" value="0">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-switch">
+            <div class="switch" id="songNewSwitch" onclick="toggleSwitch(this)"></div>
+            <span>新曲目标签</span>
+          </label>
+        </div>
+        <div class="form-group">
+          <label class="form-switch">
+            <div class="switch" id="songHotSwitch" onclick="toggleSwitch(this)"></div>
+            <span>热门标签</span>
+          </label>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">标签（逗号分隔）</label>
+        <input type="text" class="form-input" id="songTags" placeholder="例如: 古风, 流行, 新手">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">上线时间（可选）</label>
+          <input type="datetime-local" class="form-input" id="songOnlineTime">
+        </div>
+        <div class="form-group">
+          <label class="form-label">下线时间（可选）</label>
+          <input type="datetime-local" class="form-input" id="songOfflineTime">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('songModal')">取消</button>
+        <button class="btn btn-primary" onclick="saveSong()">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="activityModal">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title" id="activityModalTitle">添加活动</div>
+        <button class="modal-close" onclick="closeModal('activityModal')">&times;</button>
+      </div>
+      <input type="hidden" id="editActivityId">
+      <div class="form-group">
+        <label class="form-label">活动ID *</label>
+        <input type="text" class="form-input" id="activityId" placeholder="例如: spring_event_2024">
+      </div>
+      <div class="form-group">
+        <label class="form-label">活动名称 *</label>
+        <input type="text" class="form-input" id="activityName" placeholder="例如: 春日诗会">
+      </div>
+      <div class="form-group">
+        <label class="form-label">活动描述</label>
+        <textarea class="form-textarea" id="activityDescription" placeholder="请输入活动描述..."></textarea>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">活动类型</label>
+          <select class="form-select" id="activityType">
+            <option value="double_reward">双倍奖励</option>
+            <option value="limited_song">限定曲目</option>
+            <option value="season">赛季活动</option>
+            <option value="login_bonus">登录奖励</option>
+            <option value="special_event">特殊活动</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-switch">
+            <div class="switch" id="activityEnabledSwitch" onclick="toggleSwitch(this)"></div>
+            <span>启用活动</span>
+          </label>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">开始时间 *</label>
+          <input type="datetime-local" class="form-input" id="activityStartTime">
+        </div>
+        <div class="form-group">
+          <label class="form-label">结束时间 *</label>
+          <input type="datetime-local" class="form-input" id="activityEndTime">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">活动配置（JSON格式）</label>
+        <textarea class="form-textarea" id="activityConfig" placeholder='{"rewardMultiplier": 2, "affectedTypes": ["coin"]}'></textarea>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('activityModal')">取消</button>
+        <button class="btn btn-primary" onclick="saveActivity()">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="rewardModal">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title" id="rewardModalTitle">添加奖励</div>
+        <button class="modal-close" onclick="closeModal('rewardModal')">&times;</button>
+      </div>
+      <input type="hidden" id="editRewardId">
+      <div class="form-group">
+        <label class="form-label">奖励ID *</label>
+        <input type="text" class="form-input" id="rewardId" placeholder="例如: first_clear_bonus">
+      </div>
+      <div class="form-group">
+        <label class="form-label">奖励名称 *</label>
+        <input type="text" class="form-input" id="rewardName" placeholder="例如: 首次通关奖励">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">奖励类型</label>
+          <select class="form-select" id="rewardType">
+            <option value="coin">金币</option>
+            <option value="jade">玉石</option>
+            <option value="star">星辰</option>
+            <option value="cosmetic">外观</option>
+            <option value="title">称号</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">奖励数值</label>
+          <input type="number" class="form-input" id="rewardValue" value="100">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-switch">
+          <div class="switch" id="rewardEnabledSwitch" onclick="toggleSwitch(this)"></div>
+          <span>启用奖励</span>
+        </label>
+      </div>
+      <div class="form-group">
+        <label class="form-label">奖励条件（JSON数组格式）</label>
+        <textarea class="form-textarea" id="rewardConditions" placeholder='[{"type": "first_clear", "targetValue": 1, "songId": "love-poem"}]'></textarea>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('rewardModal')">取消</button>
+        <button class="btn btn-primary" onclick="saveReward()">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="announcementModal">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title" id="announcementModalTitle">添加公告</div>
+        <button class="modal-close" onclick="closeModal('announcementModal')">&times;</button>
+      </div>
+      <input type="hidden" id="editAnnouncementId">
+      <div class="form-group">
+        <label class="form-label">公告ID *</label>
+        <input type="text" class="form-input" id="announcementId" placeholder="例如: welcome_2024">
+      </div>
+      <div class="form-group">
+        <label class="form-label">公告标题 *</label>
+        <input type="text" class="form-input" id="announcementTitle" placeholder="例如: 欢迎来到浮岛书屋！">
+      </div>
+      <div class="form-group">
+        <label class="form-label">公告内容 *</label>
+        <textarea class="form-textarea" id="announcementContent" placeholder="请输入公告内容..."></textarea>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">公告类型</label>
+          <select class="form-select" id="announcementType">
+            <option value="info">信息</option>
+            <option value="success">成功</option>
+            <option value="warning">警告</option>
+            <option value="urgent">紧急</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">优先级（数字越大越靠前）</label>
+          <input type="number" class="form-input" id="announcementPriority" value="50">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-switch">
+            <div class="switch" id="announcementEnabledSwitch" onclick="toggleSwitch(this)"></div>
+            <span>启用公告</span>
+          </label>
+        </div>
+        <div class="form-group">
+          <label class="form-switch">
+            <div class="switch" id="announcementShowOnStartSwitch" onclick="toggleSwitch(this)"></div>
+            <span>启动时显示</span>
+          </label>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-switch">
+          <div class="switch" id="announcementShowInGameSwitch" onclick="toggleSwitch(this)"></div>
+          <span>游戏内显示</span>
+        </label>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">生效开始时间</label>
+          <input type="datetime-local" class="form-input" id="announcementStartTime">
+        </div>
+        <div class="form-group">
+          <label class="form-label">生效结束时间</label>
+          <input type="datetime-local" class="form-input" id="announcementEndTime">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('announcementModal')">取消</button>
+        <button class="btn btn-primary" onclick="saveAnnouncement()">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="importModal">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title">导入配置JSON</div>
+        <button class="modal-close" onclick="closeModal('importModal')">&times;</button>
+      </div>
+      <div class="form-group">
+        <label class="form-label">粘贴配置JSON</label>
+        <textarea class="form-textarea" id="importJson" placeholder="请粘贴完整的配置JSON..."></textarea>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('importModal')">取消</button>
+        <button class="btn btn-primary" onclick="importConfig()">导入</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const STORAGE_KEY = 'floating-island-bookstore-game-config';
+    let currentConfig = null;
+
+    function generateDefaultConfig() {
+      const now = Date.now();
+      const oneWeekLater = now + 7 * 24 * 60 * 60 * 1000;
+      const oneMonthLater = now + 30 * 24 * 60 * 60 * 1000;
+      const threeDaysLater = now + 3 * 24 * 60 * 60 * 1000;
+
+      return {
+        version: 1,
+        versionName: '1.0.0',
+        publishTime: now,
+        minClientVersion: '1.0.0',
+        songs: [
+          { songId: 'love-poem', isOnline: true, sortPriority: 3, isNew: true, isHot: true, tags: ['初恋', '浪漫', '入门'] },
+          { songId: 'spring-breeze', isOnline: true, sortPriority: 2, isNew: false, isHot: false, tags: ['抒情', '经典', '中速'] },
+          { songId: 'moonlight-sonata', isOnline: true, sortPriority: 1, isNew: false, isHot: false, tags: ['经典', '思乡', '高难度'] }
+        ],
+        activities: [
+          {
+            id: 'double_reward_launch',
+            name: '开服双倍奖励',
+            description: '活动期间，所有曲目获得双倍金币奖励！',
+            isEnabled: true,
+            startTime: now,
+            endTime: oneWeekLater,
+            type: 'double_reward',
+            config: { rewardMultiplier: 2, affectedTypes: ['coin'] }
+          },
+          {
+            id: 'login_bonus_daily',
+            name: '每日登录奖励',
+            description: '每日登录即可获得丰厚奖励，连续登录奖励更丰厚！',
+            isEnabled: true,
+            startTime: now,
+            endTime: oneMonthLater,
+            type: 'login_bonus',
+            config: { rewards: [{ day: 1, coin: 100, jade: 5 }, { day: 7, coin: 500, jade: 50, star: 5 }] }
+          }
+        ],
+        rewards: [
+          {
+            id: 'first_clear_love_poem',
+            name: '初次通关：告白诗篇',
+            type: 'coin',
+            value: 500,
+            conditions: [{ type: 'first_clear', targetValue: 1, songId: 'love-poem', difficulty: 'normal' }],
+            isEnabled: true
+          },
+          {
+            id: 'rating_s_any_song',
+            name: 'S级评价达成',
+            type: 'star',
+            value: 5,
+            conditions: [{ type: 'rating', targetValue: 1, minRating: 'S' }],
+            isEnabled: true
+          }
+        ],
+        announcements: [
+          {
+            id: 'welcome_announcement',
+            title: '欢迎来到浮岛书屋！',
+            content: '感谢您游玩《浮岛书屋》！祝您游戏愉快！',
+            type: 'success',
+            priority: 100,
+            isEnabled: true,
+            startTime: now,
+            endTime: oneWeekLater,
+            showOnStart: true,
+            showInGame: false
+          },
+          {
+            id: 'spring_event_announcement',
+            title: '春日诗会活动开启',
+            content: '🌸 春日诗会活动正式开启！完成任务获取限定奖励。',
+            type: 'info',
+            priority: 80,
+            isEnabled: true,
+            startTime: now,
+            endTime: oneWeekLater,
+            showOnStart: true,
+            showInGame: true
+          }
+        ],
+        globalSettings: {
+          maintenanceMode: false,
+          forceUpdate: false,
+          latestClientVersion: '1.0.0'
+        }
+      };
+    }
+
+    function loadConfig() {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (stored) {
+        try {
+          currentConfig = JSON.parse(stored);
+          showToast('配置加载成功', 'success');
+        } catch (e) {
+          currentConfig = generateDefaultConfig();
+          showToast('配置解析失败，使用默认配置', 'error');
+        }
+      } else {
+        currentConfig = generateDefaultConfig();
+        saveConfigToStorage();
+        showToast('未找到配置，已生成默认配置', 'info');
+      }
+      updateAllViews();
+    }
+
+    function saveConfigToStorage() {
+      if (currentConfig) {
+        currentConfig.publishTime = Date.now();
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(currentConfig));
+      }
+    }
+
+    function saveConfig() {
+      if (!currentConfig) return;
+      
+      currentConfig.version = parseInt(document.getElementById('settingVersion').value) || 1;
+      currentConfig.versionName = document.getElementById('settingVersionName').value || '1.0.0';
+      currentConfig.minClientVersion = document.getElementById('settingMinClientVersion').value || '1.0.0';
+      currentConfig.globalSettings.maintenanceMode = document.getElementById('maintenanceSwitch').classList.contains('active');
+      currentConfig.globalSettings.maintenanceMessage = document.getElementById('maintenanceMessage').value;
+      currentConfig.globalSettings.forceUpdate = document.getElementById('forceUpdateSwitch').classList.contains('active');
+      currentConfig.globalSettings.latestClientVersion = document.getElementById('latestClientVersion').value;
+      currentConfig.globalSettings.updateUrl = document.getElementById('updateUrl').value;
+      
+      saveConfigToStorage();
+      updateAllViews();
+      showToast('配置已保存', 'success');
+    }
+
+    function updateAllViews() {
+      if (!currentConfig) return;
+      
+      updateOverview();
+      updateSongsTable();
+      updateActivitiesTable();
+      updateRewardsTable();
+      updateAnnouncementsTable();
+      updateSettingsForm();
+      refreshJsonPreview();
+      
+      document.getElementById('versionBadge').textContent = 'v' + currentConfig.versionName;
+    }
+
+    function updateOverview() {
+      if (!currentConfig) return;
+      
+      const now = Date.now();
+      const onlineSongs = currentConfig.songs.filter(s => s.isOnline).length;
+      const activeActivities = currentConfig.activities.filter(a => 
+        a.isEnabled && now >= a.startTime && now <= a.endTime
+      ).length;
+      const activeRewards = currentConfig.rewards.filter(r => r.isEnabled).length;
+      const activeAnnouncements = currentConfig.announcements.filter(a => 
+        a.isEnabled && now >= a.startTime && now <= a.endTime
+      ).length;
+
+      document.getElementById('overviewVersion').textContent = currentConfig.version;
+      document.getElementById('overviewSongs').textContent = onlineSongs;
+      document.getElementById('overviewActivities').textContent = activeActivities;
+      document.getElementById('overviewRewards').textContent = activeRewards;
+      document.getElementById('overviewAnnouncements').textContent = activeAnnouncements;
+      document.getElementById('overviewPublishTime').textContent = formatDateTime(currentConfig.publishTime);
+    }
+
+    function updateSongsTable() {
+      const tbody = document.querySelector('#songsTable tbody');
+      if (!currentConfig || !currentConfig.songs.length) {
+        tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state"><div class="empty-state-icon">🎵</div><div>暂无曲目配置</div></div></td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = currentConfig.songs.map(song => `
+        <tr>
+          <td><code>${song.songId}</code></td>
+          <td><span class="status-badge ${song.isOnline ? 'status-online' : 'status-offline'}">${song.isOnline ? '已上线' : '已下线'}</span></td>
+          <td>${song.sortPriority}</td>
+          <td>
+            ${song.isNew ? '<span class="tag tag-new">NEW</span>' : ''}
+            ${song.isHot ? '<span class="tag tag-hot">HOT</span>' : ''}
+            ${(song.tags || []).map(t => `<span class="tag">${t}</span>`).join('')}
+          </td>
+          <td>${song.onlineTime ? formatDateTime(song.onlineTime) : '-'}</td>
+          <td>${song.offlineTime ? formatDateTime(song.offlineTime) : '-'}</td>
+          <td>
+            <div class="action-btns">
+              <button class="btn action-btn btn-secondary" onclick="editSong('${song.songId}')">编辑</button>
+              <button class="btn action-btn ${song.isOnline ? 'btn-danger' : 'btn-success'}" onclick="toggleSongStatus('${song.songId}')">
+                ${song.isOnline ? '下线' : '上线'}
+              </button>
+              <button class="btn action-btn btn-danger" onclick="deleteSong('${song.songId}')">删除</button>
+            </div>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    function updateActivitiesTable() {
+      const tbody = document.querySelector('#activitiesTable tbody');
+      if (!currentConfig || !currentConfig.activities.length) {
+        tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state"><div class="empty-state-icon">🎉</div><div>暂无活动</div></div></td></tr>';
+        return;
+      }
+
+      const typeLabels = {
+        double_reward: '双倍奖励',
+        limited_song: '限定曲目',
+        season: '赛季活动',
+        login_bonus: '登录奖励',
+        special_event: '特殊活动'
+      };
+
+      const now = Date.now();
+      tbody.innerHTML = currentConfig.activities.map(activity => {
+        const isActive = activity.isEnabled && now >= activity.startTime && now <= activity.endTime;
+        return `
+          <tr>
+            <td><code>${activity.id}</code></td>
+            <td>${activity.name}</td>
+            <td>${typeLabels[activity.type] || activity.type}</td>
+            <td><span class="status-badge ${isActive ? 'status-active' : 'status-disabled'}">${isActive ? '进行中' : activity.isEnabled ? '未开始/已结束' : '已禁用'}</span></td>
+            <td>${formatDateTime(activity.startTime)}</td>
+            <td>${formatDateTime(activity.endTime)}</td>
+            <td>
+              <div class="action-btns">
+                <button class="btn action-btn btn-secondary" onclick="editActivity('${activity.id}')">编辑</button>
+                <button class="btn action-btn ${activity.isEnabled ? 'btn-warning' : 'btn-success'}" onclick="toggleActivityStatus('${activity.id}')">
+                  ${activity.isEnabled ? '禁用' : '启用'}
+                </button>
+                <button class="btn action-btn btn-danger" onclick="deleteActivity('${activity.id}')">删除</button>
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function updateRewardsTable() {
+      const tbody = document.querySelector('#rewardsTable tbody');
+      if (!currentConfig || !currentConfig.rewards.length) {
+        tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state"><div class="empty-state-icon">🎁</div><div>暂无奖励</div></div></td></tr>';
+        return;
+      }
+
+      const typeLabels = {
+        coin: '金币',
+        jade: '玉石',
+        star: '星辰',
+        cosmetic: '外观',
+        title: '称号'
+      };
+
+      tbody.innerHTML = currentConfig.rewards.map(reward => `
+        <tr>
+          <td><code>${reward.id}</code></td>
+          <td>${reward.name}</td>
+          <td>${typeLabels[reward.type] || reward.type}</td>
+          <td>${reward.value}</td>
+          <td><span class="status-badge ${reward.isEnabled ? 'status-active' : 'status-disabled'}">${reward.isEnabled ? '启用' : '禁用'}</span></td>
+          <td>${formatConditions(reward.conditions)}</td>
+          <td>
+            <div class="action-btns">
+              <button class="btn action-btn btn-secondary" onclick="editReward('${reward.id}')">编辑</button>
+              <button class="btn action-btn ${reward.isEnabled ? 'btn-warning' : 'btn-success'}" onclick="toggleRewardStatus('${reward.id}')">
+                ${reward.isEnabled ? '禁用' : '启用'}
+              </button>
+              <button class="btn action-btn btn-danger" onclick="deleteReward('${reward.id}')">删除</button>
+            </div>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    function updateAnnouncementsTable() {
+      const tbody = document.querySelector('#announcementsTable tbody');
+      if (!currentConfig || !currentConfig.announcements.length) {
+        tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state"><div class="empty-state-icon">📢</div><div>暂无公告</div></div></td></tr>';
+        return;
+      }
+
+      const typeLabels = {
+        info: '信息',
+        success: '成功',
+        warning: '警告',
+        urgent: '紧急'
+      };
+
+      const now = Date.now();
+      tbody.innerHTML = currentConfig.announcements.map(announcement => {
+        const isActive = announcement.isEnabled && now >= announcement.startTime && now <= announcement.endTime;
+        const showPositions = [];
+        if (announcement.showOnStart) showPositions.push('启动');
+        if (announcement.showInGame) showPositions.push('游戏内');
+        return `
+          <tr>
+            <td><code>${announcement.id}</code></td>
+            <td>${announcement.title}</td>
+            <td><span class="announcement-type-${announcement.type}">${typeLabels[announcement.type]}</span></td>
+            <td>${announcement.priority}</td>
+            <td><span class="status-badge ${isActive ? 'status-active' : 'status-disabled'}">${isActive ? '生效中' : '已禁用/过期'}</span></td>
+            <td>${showPositions.join(', ') || '-'}</td>
+            <td>
+              <div class="action-btns">
+                <button class="btn action-btn btn-secondary" onclick="editAnnouncement('${announcement.id}')">编辑</button>
+                <button class="btn action-btn ${announcement.isEnabled ? 'btn-warning' : 'btn-success'}" onclick="toggleAnnouncementStatus('${announcement.id}')">
+                  ${announcement.isEnabled ? '禁用' : '启用'}
+                </button>
+                <button class="btn action-btn btn-danger" onclick="deleteAnnouncement('${announcement.id}')">删除</button>
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function updateSettingsForm() {
+      if (!currentConfig) return;
+      
+      document.getElementById('settingVersion').value = currentConfig.version;
+      document.getElementById('settingVersionName').value = currentConfig.versionName || '';
+      document.getElementById('settingMinClientVersion').value = currentConfig.minClientVersion || '';
+      
+      setSwitchActive('maintenanceSwitch', currentConfig.globalSettings.maintenanceMode);
+      document.getElementById('maintenanceMessage').value = currentConfig.globalSettings.maintenanceMessage || '';
+      
+      setSwitchActive('forceUpdateSwitch', currentConfig.globalSettings.forceUpdate);
+      document.getElementById('latestClientVersion').value = currentConfig.globalSettings.latestClientVersion || '';
+      document.getElementById('updateUrl').value = currentConfig.globalSettings.updateUrl || '';
+    }
+
+    function refreshJsonPreview() {
+      const preview = document.getElementById('jsonPreview');
+      if (currentConfig) {
+        preview.textContent = JSON.stringify(currentConfig, null, 2);
+      } else {
+        preview.textContent = '// 暂无配置';
+      }
+    }
+
+    function showSongModal(editId = null) {
+      document.getElementById('editSongId').value = editId || '';
+      document.getElementById('songModalTitle').textContent = editId ? '编辑曲目配置' : '添加曲目配置';
+      
+      if (editId) {
+        const song = currentConfig.songs.find(s => s.songId === editId);
+        if (song) {
+          document.getElementById('songId').value = song.songId;
+          document.getElementById('songId').disabled = true;
+          setSwitchActive('songOnlineSwitch', song.isOnline);
+          document.getElementById('songSortPriority').value = song.sortPriority;
+          setSwitchActive('songNewSwitch', song.isNew);
+          setSwitchActive('songHotSwitch', song.isHot);
+          document.getElementById('songTags').value = (song.tags || []).join(', ');
+          document.getElementById('songOnlineTime').value = song.onlineTime ? formatLocalDateTime(song.onlineTime) : '';
+          document.getElementById('songOfflineTime').value = song.offlineTime ? formatLocalDateTime(song.offlineTime) : '';
+        }
+      } else {
+        document.getElementById('songId').value = '';
+        document.getElementById('songId').disabled = false;
+        setSwitchActive('songOnlineSwitch', true);
+        document.getElementById('songSortPriority').value = 0;
+        setSwitchActive('songNewSwitch', false);
+        setSwitchActive('songHotSwitch', false);
+        document.getElementById('songTags').value = '';
+        document.getElementById('songOnlineTime').value = '';
+        document.getElementById('songOfflineTime').value = '';
+      }
+      
+      openModal('songModal');
+    }
+
+    function saveSong() {
+      const songId = document.getElementById('songId').value.trim();
+      const editId = document.getElementById('editSongId').value;
+      
+      if (!songId) {
+        showToast('请输入曲目ID', 'error');
+        return;
+      }
+
+      if (!editId && currentConfig.songs.find(s => s.songId === songId)) {
+        showToast('曲目ID已存在', 'error');
+        return;
+      }
+
+      const songConfig = {
+        songId: songId,
+        isOnline: document.getElementById('songOnlineSwitch').classList.contains('active'),
+        sortPriority: parseInt(document.getElementById('songSortPriority').value) || 0,
+        isNew: document.getElementById('songNewSwitch').classList.contains('active'),
+        isHot: document.getElementById('songHotSwitch').classList.contains('active'),
+        tags: document.getElementById('songTags').value.split(',').map(t => t.trim()).filter(t => t),
+        onlineTime: document.getElementById('songOnlineTime').value ? new Date(document.getElementById('songOnlineTime').value).getTime() : undefined,
+        offlineTime: document.getElementById('songOfflineTime').value ? new Date(document.getElementById('songOfflineTime').value).getTime() : undefined
+      };
+
+      if (editId) {
+        const index = currentConfig.songs.findIndex(s => s.songId === editId);
+        if (index !== -1) {
+          currentConfig.songs[index] = songConfig;
+        }
+      } else {
+        currentConfig.songs.push(songConfig);
+      }
+
+      saveConfigToStorage();
+      updateAllViews();
+      closeModal('songModal');
+      showToast('曲目配置已保存', 'success');
+    }
+
+    function editSong(songId) {
+      showSongModal(songId);
+    }
+
+    function toggleSongStatus(songId) {
+      const song = currentConfig.songs.find(s => s.songId === songId);
+      if (song) {
+        song.isOnline = !song.isOnline;
+        saveConfigToStorage();
+        updateAllViews();
+        showToast(`曲目已${song.isOnline ? '上线' : '下线'}`, 'success');
+      }
+    }
+
+    function deleteSong(songId) {
+      if (confirm('确定要删除这个曲目配置吗？')) {
+        currentConfig.songs = currentConfig.songs.filter(s => s.songId !== songId);
+        saveConfigToStorage();
+        updateAllViews();
+        showToast('曲目配置已删除', 'success');
+      }
+    }
+
+    function showActivityModal(editId = null) {
+      document.getElementById('editActivityId').value = editId || '';
+      document.getElementById('activityModalTitle').textContent = editId ? '编辑活动' : '添加活动';
+      
+      const now = new Date();
+      const nextWeek = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+      
+      if (editId) {
+        const activity = currentConfig.activities.find(a => a.id === editId);
+        if (activity) {
+          document.getElementById('activityId').value = activity.id;
+          document.getElementById('activityId').disabled = true;
+          document.getElementById('activityName').value = activity.name;
+          document.getElementById('activityDescription').value = activity.description;
+          document.getElementById('activityType').value = activity.type;
+          setSwitchActive('activityEnabledSwitch', activity.isEnabled);
+          document.getElementById('activityStartTime').value = formatLocalDateTime(activity.startTime);
+          document.getElementById('activityEndTime').value = formatLocalDateTime(activity.endTime);
+          document.getElementById('activityConfig').value = JSON.stringify(activity.config, null, 2);
+        }
+      } else {
+        document.getElementById('activityId').value = '';
+        document.getElementById('activityId').disabled = false;
+        document.getElementById('activityName').value = '';
+        document.getElementById('activityDescription').value = '';
+        document.getElementById('activityType').value = 'double_reward';
+        setSwitchActive('activityEnabledSwitch', true);
+        document.getElementById('activityStartTime').value = formatLocalDateTime(now.getTime());
+        document.getElementById('activityEndTime').value = formatLocalDateTime(nextWeek.getTime());
+        document.getElementById('activityConfig').value = '{}';
+      }
+      
+      openModal('activityModal');
+    }
+
+    function saveActivity() {
+      const activityId = document.getElementById('activityId').value.trim();
+      const editId = document.getElementById('editActivityId').value;
+      
+      if (!activityId) {
+        showToast('请输入活动ID', 'error');
+        return;
+      }
+
+      if (!editId && currentConfig.activities.find(a => a.id === activityId)) {
+        showToast('活动ID已存在', 'error');
+        return;
+      }
+
+      let config = {};
+      try {
+        const configStr = document.getElementById('activityConfig').value.trim();
+        if (configStr) {
+          config = JSON.parse(configStr);
+        }
+      } catch (e) {
+        showToast('活动配置JSON格式错误', 'error');
+        return;
+      }
+
+      const activityConfig = {
+        id: activityId,
+        name: document.getElementById('activityName').value.trim(),
+        description: document.getElementById('activityDescription').value.trim(),
+        type: document.getElementById('activityType').value,
+        isEnabled: document.getElementById('activityEnabledSwitch').classList.contains('active'),
+        startTime: new Date(document.getElementById('activityStartTime').value).getTime(),
+        endTime: new Date(document.getElementById('activityEndTime').value).getTime(),
+        config: config
+      };
+
+      if (editId) {
+        const index = currentConfig.activities.findIndex(a => a.id === editId);
+        if (index !== -1) {
+          currentConfig.activities[index] = activityConfig;
+        }
+      } else {
+        currentConfig.activities.push(activityConfig);
+      }
+
+      saveConfigToStorage();
+      updateAllViews();
+      closeModal('activityModal');
+      showToast('活动已保存', 'success');
+    }
+
+    function editActivity(activityId) {
+      showActivityModal(activityId);
+    }
+
+    function toggleActivityStatus(activityId) {
+      const activity = currentConfig.activities.find(a => a.id === activityId);
+      if (activity) {
+        activity.isEnabled = !activity.isEnabled;
+        saveConfigToStorage();
+        updateAllViews();
+        showToast(`活动已${activity.isEnabled ? '启用' : '禁用'}`, 'success');
+      }
+    }
+
+    function deleteActivity(activityId) {
+      if (confirm('确定要删除这个活动吗？')) {
+        currentConfig.activities = currentConfig.activities.filter(a => a.id !== activityId);
+        saveConfigToStorage();
+        updateAllViews();
+        showToast('活动已删除', 'success');
+      }
+    }
+
+    function showRewardModal(editId = null) {
+      document.getElementById('editRewardId').value = editId || '';
+      document.getElementById('rewardModalTitle').textContent = editId ? '编辑奖励' : '添加奖励';
+      
+      if (editId) {
+        const reward = currentConfig.rewards.find(r => r.id === editId);
+        if (reward) {
+          document.getElementById('rewardId').value = reward.id;
+          document.getElementById('rewardId').disabled = true;
+          document.getElementById('rewardName').value = reward.name;
+          document.getElementById('rewardType').value = reward.type;
+          document.getElementById('rewardValue').value = reward.value;
+          setSwitchActive('rewardEnabledSwitch', reward.isEnabled);
+          document.getElementById('rewardConditions').value = JSON.stringify(reward.conditions, null, 2);
+        }
+      } else {
+        document.getElementById('rewardId').value = '';
+        document.getElementById('rewardId').disabled = false;
+        document.getElementById('rewardName').value = '';
+        document.getElementById('rewardType').value = 'coin';
+        document.getElementById('rewardValue').value = 100;
+        setSwitchActive('rewardEnabledSwitch', true);
+        document.getElementById('rewardConditions').value = '[]';
+      }
+      
+      openModal('rewardModal');
+    }
+
+    function saveReward() {
+      const rewardId = document.getElementById('rewardId').value.trim();
+      const editId = document.getElementById('editRewardId').value;
+      
+      if (!rewardId) {
+        showToast('请输入奖励ID', 'error');
+        return;
+      }
+
+      if (!editId && currentConfig.rewards.find(r => r.id === rewardId)) {
+        showToast('奖励ID已存在', 'error');
+        return;
+      }
+
+      let conditions = [];
+      try {
+        const conditionsStr = document.getElementById('rewardConditions').value.trim();
+        if (conditionsStr) {
+          conditions = JSON.parse(conditionsStr);
+        }
+      } catch (e) {
+        showToast('奖励条件JSON格式错误', 'error');
+        return;
+      }
+
+      const rewardConfig = {
+        id: rewardId,
+        name: document.getElementById('rewardName').value.trim(),
+        type: document.getElementById('rewardType').value,
+        value: parseInt(document.getElementById('rewardValue').value) || 0,
+        isEnabled: document.getElementById('rewardEnabledSwitch').classList.contains('active'),
+        conditions: conditions
+      };
+
+      if (editId) {
+        const index = currentConfig.rewards.findIndex(r => r.id === editId);
+        if (index !== -1) {
+          currentConfig.rewards[index] = rewardConfig;
+        }
+      } else {
+        currentConfig.rewards.push(rewardConfig);
+      }
+
+      saveConfigToStorage();
+      updateAllViews();
+      closeModal('rewardModal');
+      showToast('奖励已保存', 'success');
+    }
+
+    function editReward(rewardId) {
+      showRewardModal(rewardId);
+    }
+
+    function toggleRewardStatus(rewardId) {
+      const reward = currentConfig.rewards.find(r => r.id === rewardId);
+      if (reward) {
+        reward.isEnabled = !reward.isEnabled;
+        saveConfigToStorage();
+        updateAllViews();
+        showToast(`奖励已${reward.isEnabled ? '启用' : '禁用'}`, 'success');
+      }
+    }
+
+    function deleteReward(rewardId) {
+      if (confirm('确定要删除这个奖励吗？')) {
+        currentConfig.rewards = currentConfig.rewards.filter(r => r.id !== rewardId);
+        saveConfigToStorage();
+        updateAllViews();
+        showToast('奖励已删除', 'success');
+      }
+    }
+
+    function showAnnouncementModal(editId = null) {
+      document.getElementById('editAnnouncementId').value = editId || '';
+      document.getElementById('announcementModalTitle').textContent = editId ? '编辑公告' : '添加公告';
+      
+      const now = new Date();
+      const nextWeek = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+      
+      if (editId) {
+        const announcement = currentConfig.announcements.find(a => a.id === editId);
+        if (announcement) {
+          document.getElementById('announcementId').value = announcement.id;
+          document.getElementById('announcementId').disabled = true;
+          document.getElementById('announcementTitle').value = announcement.title;
+          document.getElementById('announcementContent').value = announcement.content;
+          document.getElementById('announcementType').value = announcement.type;
+          document.getElementById('announcementPriority').value = announcement.priority;
+          setSwitchActive('announcementEnabledSwitch', announcement.isEnabled);
+          setSwitchActive('announcementShowOnStartSwitch', announcement.showOnStart);
+          setSwitchActive('announcementShowInGameSwitch', announcement.showInGame);
+          document.getElementById('announcementStartTime').value = formatLocalDateTime(announcement.startTime);
+          document.getElementById('announcementEndTime').value = formatLocalDateTime(announcement.endTime);
+        }
+      } else {
+        document.getElementById('announcementId').value = '';
+        document.getElementById('announcementId').disabled = false;
+        document.getElementById('announcementTitle').value = '';
+        document.getElementById('announcementContent').value = '';
+        document.getElementById('announcementType').value = 'info';
+        document.getElementById('announcementPriority').value = 50;
+        setSwitchActive('announcementEnabledSwitch', true);
+        setSwitchActive('announcementShowOnStartSwitch', true);
+        setSwitchActive('announcementShowInGameSwitch', false);
+        document.getElementById('announcementStartTime').value = formatLocalDateTime(now.getTime());
+        document.getElementById('announcementEndTime').value = formatLocalDateTime(nextWeek.getTime());
+      }
+      
+      openModal('announcementModal');
+    }
+
+    function saveAnnouncement() {
+      const announcementId = document.getElementById('announcementId').value.trim();
+      const editId = document.getElementById('editAnnouncementId').value;
+      
+      if (!announcementId) {
+        showToast('请输入公告ID', 'error');
+        return;
+      }
+
+      if (!editId && currentConfig.announcements.find(a => a.id === announcementId)) {
+        showToast('公告ID已存在', 'error');
+        return;
+      }
+
+      const announcementConfig = {
+        id: announcementId,
+        title: document.getElementById('announcementTitle').value.trim(),
+        content: document.getElementById('announcementContent').value.trim(),
+        type: document.getElementById('announcementType').value,
+        priority: parseInt(document.getElementById('announcementPriority').value) || 0,
+        isEnabled: document.getElementById('announcementEnabledSwitch').classList.contains('active'),
+        showOnStart: document.getElementById('announcementShowOnStartSwitch').classList.contains('active'),
+        showInGame: document.getElementById('announcementShowInGameSwitch').classList.contains('active'),
+        startTime: new Date(document.getElementById('announcementStartTime').value).getTime(),
+        endTime: new Date(document.getElementById('announcementEndTime').value).getTime()
+      };
+
+      if (editId) {
+        const index = currentConfig.announcements.findIndex(a => a.id === editId);
+        if (index !== -1) {
+          currentConfig.announcements[index] = announcementConfig;
+        }
+      } else {
+        currentConfig.announcements.push(announcementConfig);
+      }
+
+      saveConfigToStorage();
+      updateAllViews();
+      closeModal('announcementModal');
+      showToast('公告已保存', 'success');
+    }
+
+    function editAnnouncement(announcementId) {
+      showAnnouncementModal(announcementId);
+    }
+
+    function toggleAnnouncementStatus(announcementId) {
+      const announcement = currentConfig.announcements.find(a => a.id === announcementId);
+      if (announcement) {
+        announcement.isEnabled = !announcement.isEnabled;
+        saveConfigToStorage();
+        updateAllViews();
+        showToast(`公告已${announcement.isEnabled ? '启用' : '禁用'}`, 'success');
+      }
+    }
+
+    function deleteAnnouncement(announcementId) {
+      if (confirm('确定要删除这个公告吗？')) {
+        currentConfig.announcements = currentConfig.announcements.filter(a => a.id !== announcementId);
+        saveConfigToStorage();
+        updateAllViews();
+        showToast('公告已删除', 'success');
+      }
+    }
+
+    function showImportModal() {
+      document.getElementById('importJson').value = '';
+      openModal('importModal');
+    }
+
+    function importConfig() {
+      try {
+        const jsonStr = document.getElementById('importJson').value.trim();
+        if (!jsonStr) {
+          showToast('请输入配置JSON', 'error');
+          return;
+        }
+
+        const config = JSON.parse(jsonStr);
+        
+        if (!config.version || !config.songs || !config.activities || !config.rewards || !config.announcements) {
+          showToast('配置格式不完整', 'error');
+          return;
+        }
+
+        if (confirm('导入将覆盖现有配置，确定继续吗？')) {
+          currentConfig = config;
+          saveConfigToStorage();
+          updateAllViews();
+          closeModal('importModal');
+          showToast('配置导入成功', 'success');
+        }
+      } catch (e) {
+        showToast('JSON格式错误: ' + e.message, 'error');
+      }
+    }
+
+    function exportConfig() {
+      if (!currentConfig) return;
+      
+      const jsonStr = JSON.stringify(currentConfig, null, 2);
+      const blob = new Blob([jsonStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `game-config-v${currentConfig.version}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast('配置已导出', 'success');
+    }
+
+    function copyJson() {
+      if (!currentConfig) return;
+      
+      const jsonStr = JSON.stringify(currentConfig, null, 2);
+      navigator.clipboard.writeText(jsonStr).then(() => {
+        showToast('JSON已复制到剪贴板', 'success');
+      }).catch(() => {
+        showToast('复制失败，请手动复制', 'error');
+      });
+    }
+
+    function resetConfig() {
+      if (confirm('确定要重置为默认配置吗？这将覆盖所有修改。')) {
+        currentConfig = generateDefaultConfig();
+        saveConfigToStorage();
+        updateAllViews();
+        showToast('已重置为默认配置', 'success');
+      }
+    }
+
+    function switchTab(tabName) {
+      document.querySelectorAll('.tab').forEach(tab => {
+        tab.classList.toggle('active', tab.dataset.tab === tabName);
+      });
+      document.querySelectorAll('.tab-content').forEach(content => {
+        content.classList.toggle('active', content.id === 'tab-' + tabName);
+      });
+    }
+
+    function openModal(modalId) {
+      document.getElementById(modalId).classList.add('active');
+    }
+
+    function closeModal(modalId) {
+      document.getElementById(modalId).classList.remove('active');
+    }
+
+    function toggleSwitch(element) {
+      element.classList.toggle('active');
+    }
+
+    function setSwitchActive(switchId, active) {
+      const switchEl = document.getElementById(switchId);
+      if (switchEl) {
+        switchEl.classList.toggle('active', active);
+      }
+    }
+
+    function formatDateTime(timestamp) {
+      if (!timestamp) return '-';
+      const date = new Date(timestamp);
+      return date.toLocaleString('zh-CN', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    }
+
+    function formatLocalDateTime(timestamp) {
+      if (!timestamp) return '';
+      const date = new Date(timestamp);
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      const hours = String(date.getHours()).padStart(2, '0');
+      const minutes = String(date.getMinutes()).padStart(2, '0');
+      return `${year}-${month}-${day}T${hours}:${minutes}`;
+    }
+
+    function formatConditions(conditions) {
+      if (!conditions || !conditions.length) return '-';
+      const typeLabels = {
+        play_count: '演奏次数',
+        perfect_count: '完美次数',
+        combo: '连击数',
+        rating: '评级',
+        accuracy: '准确率',
+        first_clear: '首次通关'
+      };
+      return conditions.map(c => {
+        const label = typeLabels[c.type] || c.type;
+        if (c.type === 'rating' && c.minRating) {
+          return `${label} ≥ ${c.minRating}`;
+        }
+        if (c.type === 'accuracy' && c.minAccuracy) {
+          return `${label} ≥ ${c.minAccuracy}%`;
+        }
+        if (c.type === 'first_clear') {
+          return label;
+        }
+        return `${label} ≥ ${c.targetValue}`;
+      }).join(', ');
+    }
+
+    function showToast(message, type = 'info') {
+      const toast = document.getElementById('toast');
+      toast.textContent = message;
+      toast.className = 'toast show ' + type;
+      setTimeout(() => {
+        toast.classList.remove('show');
+      }, 3000);
+    }
+
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        switchTab(tab.dataset.tab);
+      });
+    });
+
+    document.querySelectorAll('.modal-overlay').forEach(overlay => {
+      overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) {
+          overlay.classList.remove('active');
+        }
+      });
+    });
+
+    loadConfig();
+  </script>
+</body>
+</html>
