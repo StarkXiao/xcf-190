@@ -7,6 +7,7 @@ import {
   AchievementReward,
   AchievementUnlockState,
   MissionDefinition,
+  MissionLogEntry,
   MissionPlayerState,
   MissionProgress,
   SettlementResult,
@@ -15,6 +16,7 @@ import {
   RATING_RANK,
   ACHIEVEMENT_STATE_STORAGE_KEY,
   ACHIEVEMENT_LOG_STORAGE_KEY,
+  MISSION_LOG_STORAGE_KEY,
   MISSION_STATE_STORAGE_KEY,
   MISSION_DAILY_COUNT,
   MISSION_WEEKLY_COUNT,
@@ -32,6 +34,7 @@ export class AchievementSystem {
   private playerState: AchievementPlayerState;
   private missionState: MissionPlayerState;
   private log: AchievementLogEntry[];
+  private missionLog: MissionLogEntry[];
   private isInitialized: boolean = false;
 
   private constructor() {
@@ -40,6 +43,7 @@ export class AchievementSystem {
     this.playerState = this.createDefaultPlayerState();
     this.missionState = this.createDefaultMissionState();
     this.log = [];
+    this.missionLog = [];
     this.initialize();
   }
 
@@ -56,6 +60,7 @@ export class AchievementSystem {
     this.loadPlayerState();
     this.loadMissionState();
     this.loadLog();
+    this.loadMissionLog();
     this.checkAndResetMissions();
     this.rebuildCumulativeStats();
     this.savePlayerState();
@@ -665,6 +670,12 @@ export class AchievementSystem {
       weeklyMissions: [],
       dailyResetDate: this.getTodayDateString(),
       weeklyResetTime: Date.now(),
+      dailyStats: {
+        playCount: 0,
+        perfectCount: 0,
+        maxCombo: 0,
+        uniqueSongs: [],
+      },
       weeklyStats: {
         playCount: 0,
         perfectCount: 0,
@@ -724,6 +735,12 @@ export class AchievementSystem {
     if (this.missionState.dailyResetDate !== today && currentHour >= DAILY_RESET_HOUR) {
       this.generateDailyMissions();
       this.missionState.dailyResetDate = today;
+      this.missionState.dailyStats = {
+        playCount: 0,
+        perfectCount: 0,
+        maxCombo: 0,
+        uniqueSongs: [],
+      };
       this.saveMissionState();
     }
 
@@ -798,7 +815,8 @@ export class AchievementSystem {
         newlyUnlockedAchievements: [],
         completedMissions: [],
         totalRewards: {},
-        logEntries: [],
+        achievementLogEntries: [],
+        missionLogEntries: [],
       };
     }
 
@@ -825,6 +843,16 @@ export class AchievementSystem {
     }
     stats.poemsCollected = Math.max(stats.poemsCollected, poemsCollected);
 
+    this.missionState.dailyStats.playCount++;
+    this.missionState.dailyStats.perfectCount += scoreData.perfect;
+    this.missionState.dailyStats.maxCombo = Math.max(
+      this.missionState.dailyStats.maxCombo,
+      scoreData.maxCombo
+    );
+    if (!this.missionState.dailyStats.uniqueSongs.includes(songId)) {
+      this.missionState.dailyStats.uniqueSongs.push(songId);
+    }
+
     this.missionState.weeklyStats.playCount++;
     this.missionState.weeklyStats.perfectCount += scoreData.perfect;
     this.missionState.weeklyStats.maxCombo = Math.max(
@@ -850,7 +878,7 @@ export class AchievementSystem {
 
     this.playerState.totalAchievementPoints += newlyUnlockedAchievements.length * 10;
 
-    const logEntries: AchievementLogEntry[] = newlyUnlockedAchievements.map(ach => ({
+    const achievementLogEntries: AchievementLogEntry[] = newlyUnlockedAchievements.map(ach => ({
       achievementId: ach.id,
       category: ach.category,
       title: ach.title,
@@ -866,20 +894,43 @@ export class AchievementSystem {
       },
     }));
 
-    this.log.push(...logEntries);
+    const missionLogEntries: MissionLogEntry[] = completedMissions.map(mis => ({
+      missionId: mis.id,
+      missionType: mis.type,
+      title: mis.title,
+      completedAt: Date.now(),
+      rewards: mis.reward,
+      triggerContext: {
+        songId,
+        difficulty,
+        rating: scoreData.rating,
+        accuracy,
+        maxCombo: scoreData.maxCombo,
+        score: scoreData.score,
+      },
+    }));
+
+    this.log.push(...achievementLogEntries);
     if (this.log.length > MAX_LOG_ENTRIES) {
       this.log = this.log.slice(-MAX_LOG_ENTRIES);
+    }
+
+    this.missionLog.push(...missionLogEntries);
+    if (this.missionLog.length > MAX_LOG_ENTRIES) {
+      this.missionLog = this.missionLog.slice(-MAX_LOG_ENTRIES);
     }
 
     this.savePlayerState();
     this.saveMissionState();
     this.saveLog();
+    this.saveMissionLog();
 
     return {
       newlyUnlockedAchievements,
       completedMissions,
       totalRewards,
-      logEntries,
+      achievementLogEntries,
+      missionLogEntries,
     };
   }
 
@@ -1051,11 +1102,13 @@ export class AchievementSystem {
 
     const evaluateMissionProgress = (
       missionDef: MissionDefinition,
-      currentValue: number
+      currentValue: number,
+      isDaily: boolean
     ): number => {
+      const periodStats = isDaily ? this.missionState.dailyStats : this.missionState.weeklyStats;
       switch (missionDef.conditionType) {
         case 'play_count':
-          return this.missionState.weeklyStats.playCount;
+          return periodStats.playCount;
         case 'perfect_count':
           return scoreData.perfect;
         case 'max_combo':
@@ -1071,7 +1124,7 @@ export class AchievementSystem {
         case 'score':
           return scoreData.score;
         case 'unique_songs':
-          return this.missionState.weeklyStats.uniqueSongs.length;
+          return periodStats.uniqueSongs.length;
         case 'clear_song':
           return 1;
         case 'full_combo':
@@ -1081,13 +1134,13 @@ export class AchievementSystem {
       }
     };
 
-    const checkMissionList = (missions: MissionProgress[], _isDaily: boolean): void => {
+    const checkMissionList = (missions: MissionProgress[], isDaily: boolean): void => {
       for (const progress of missions) {
         const missionDef = this.missionPool.find(m => m.id === progress.missionId);
         if (!missionDef) continue;
         if (progress.isCompleted && progress.isClaimed) continue;
 
-        const newValue = evaluateMissionProgress(missionDef, progress.currentValue);
+        const newValue = evaluateMissionProgress(missionDef, progress.currentValue, isDaily);
         progress.currentValue = Math.max(progress.currentValue, newValue);
 
         if (progress.currentValue >= missionDef.targetValue && !progress.isCompleted) {
@@ -1176,6 +1229,10 @@ export class AchievementSystem {
     return [...this.log];
   }
 
+  public getMissionLog(): MissionLogEntry[] {
+    return [...this.missionLog];
+  }
+
   public getLogForAchievement(achievementId: string): AchievementLogEntry | null {
     return this.log.find(l => l.achievementId === achievementId) || null;
   }
@@ -1224,11 +1281,16 @@ export class AchievementSystem {
       const data = localStorage.getItem(MISSION_STATE_STORAGE_KEY);
       if (data) {
         const parsed = JSON.parse(data);
+        const defaultState = this.createDefaultMissionState();
         this.missionState = {
-          ...this.createDefaultMissionState(),
+          ...defaultState,
           ...parsed,
+          dailyStats: {
+            ...defaultState.dailyStats,
+            ...(parsed.dailyStats || {}),
+          },
           weeklyStats: {
-            ...this.createDefaultMissionState().weeklyStats,
+            ...defaultState.weeklyStats,
             ...(parsed.weeklyStats || {}),
           },
         };
@@ -1265,14 +1327,35 @@ export class AchievementSystem {
     }
   }
 
+  private loadMissionLog(): void {
+    try {
+      const data = localStorage.getItem(MISSION_LOG_STORAGE_KEY);
+      if (data) {
+        this.missionLog = JSON.parse(data);
+      }
+    } catch (e) {
+      console.error('Failed to load mission log:', e);
+    }
+  }
+
+  private saveMissionLog(): void {
+    try {
+      localStorage.setItem(MISSION_LOG_STORAGE_KEY, JSON.stringify(this.missionLog));
+    } catch (e) {
+      console.error('Failed to save mission log:', e);
+    }
+  }
+
   public resetAll(): void {
     this.playerState = this.createDefaultPlayerState();
     this.missionState = this.createDefaultMissionState();
     this.log = [];
+    this.missionLog = [];
     this.generateDailyMissions();
     this.generateWeeklyMissions();
     this.savePlayerState();
     this.saveMissionState();
     this.saveLog();
+    this.saveMissionLog();
   }
 }

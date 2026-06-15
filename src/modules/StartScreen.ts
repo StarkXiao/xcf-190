@@ -37,6 +37,7 @@ export class StartScreen {
   private onShowEndingGalleryCallback?: () => void;
   private onShowShopCallback?: () => void;
   private onShowSkinCallback?: () => void;
+  private onShowAchievementCenterCallback?: () => void;
 
   private songLibrary: SongLibrary;
   private coverArtManager: CoverArtManager;
@@ -1459,12 +1460,16 @@ export class StartScreen {
     this.onShowSkinCallback = callback;
   }
 
+  public setOnShowAchievementCenterCallback(callback: () => void): void {
+    this.onShowAchievementCenterCallback = callback;
+  }
+
   private createStoryButtons(): void {
     const buttonY = this.app.screen.height - 60;
-    const buttonWidth = 100;
+    const buttonWidth = 86;
     const buttonHeight = 44;
-    const spacing = 12;
-    const totalWidth = buttonWidth * 5 + spacing * 4;
+    const spacing = 10;
+    const totalWidth = buttonWidth * 6 + spacing * 5;
     const startX = (this.app.screen.width - totalWidth) / 2 + buttonWidth / 2;
 
     const buttons = [
@@ -1485,6 +1490,12 @@ export class StartScreen {
         label: '画廊',
         color: 0xff6b9d,
         callback: () => this.onShowEndingGalleryCallback?.()
+      },
+      {
+        icon: '🏅',
+        label: '成就',
+        color: 0xff9500,
+        callback: () => this.onShowAchievementCenterCallback?.()
       },
       {
         icon: '🛒',

@@ -20,6 +20,7 @@ import { ShopSystem } from './modules/ShopSystem';
 import { SkinRenderer } from './modules/SkinRenderer';
 import { ShopView } from './modules/ShopView';
 import { SkinView } from './modules/SkinView';
+import { AchievementCenterView } from './modules/AchievementCenterView';
 import { getSongById, SongWithUnlock } from './data/songs';
 import { ChartData, CharHitRecord, Difficulty, JudgeEvent, JudgeResult, LANE_COUNT, NoteData, NoteType, InputConfig, ResonanceState, PracticeConfig, DEFAULT_PRACTICE_CONFIG, BarInfo, PreloadedChart, SongChartEntry, ChartDifficultyConfig, StoryStateChangeEvent, SkinConfig, SettlementResult } from './types';
 import { AchievementSystem } from './modules/AchievementSystem';
@@ -90,6 +91,7 @@ export class Game {
   private endingGallery: EndingGallery;
   private shopView: ShopView;
   private skinView: SkinView;
+  private achievementCenterView: AchievementCenterView;
   
   private gameContainer: PIXI.Container;
   private noteSprites: Map<number, NoteSprite> = new Map();
@@ -249,6 +251,7 @@ export class Game {
     this.endingGallery = new EndingGallery(this.app);
     this.shopView = new ShopView(this.app);
     this.skinView = new SkinView(this.app);
+    this.achievementCenterView = new AchievementCenterView(this.app);
     
     this.gameContainer = new PIXI.Container();
     this.noteLayer = new PIXI.Container();
@@ -1308,6 +1311,11 @@ export class Game {
       this.skinView.show();
     });
 
+    this.startScreen.setOnShowAchievementCenterCallback(() => {
+      this.hideAllScreens();
+      this.achievementCenterView.show();
+    });
+
     this.chapterMapView.setOnCloseCallback(() => {
       this.showStartScreen();
     });
@@ -1329,6 +1337,10 @@ export class Game {
     });
 
     this.skinView.setOnCloseCallback(() => {
+      this.showStartScreen();
+    });
+
+    this.achievementCenterView.setOnCloseCallback(() => {
       this.showStartScreen();
     });
 
@@ -1379,6 +1391,7 @@ export class Game {
     this.resultScreen.hide();
     this.shopView.hide();
     this.skinView.hide();
+    this.achievementCenterView.hide();
   }
 
   private showStartScreen(): void {
@@ -1691,7 +1704,8 @@ export class Game {
       newlyUnlockedAchievements: [],
       completedMissions: [],
       totalRewards: {},
-      logEntries: [],
+      achievementLogEntries: [],
+      missionLogEntries: [],
     };
 
     if (this.currentChart) {

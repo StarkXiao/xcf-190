@@ -1201,6 +1201,7 @@ export const RARITY_RANK: Record<string, number> = {
 
 export const ACHIEVEMENT_STATE_STORAGE_KEY = 'floating-island-bookstore-achievement-state';
 export const ACHIEVEMENT_LOG_STORAGE_KEY = 'floating-island-bookstore-achievement-log';
+export const MISSION_LOG_STORAGE_KEY = 'floating-island-bookstore-mission-log';
 export const MISSION_STATE_STORAGE_KEY = 'floating-island-bookstore-mission-state';
 
 export type AchievementCategory = 'combo' | 'rating' | 'accuracy' | 'song_completion' | 'perfect' | 'score' | 'play_count' | 'difficulty' | 'story' | 'collection';
@@ -1303,6 +1304,24 @@ export interface MissionProgress {
   completedAt?: number;
 }
 
+export interface MissionLogEntry {
+  missionId: string;
+  missionType: MissionType;
+  title: string;
+  completedAt: number;
+  rewards: AchievementReward;
+  triggerContext: {
+    songId?: string;
+    difficulty?: Difficulty;
+    rating?: string;
+    accuracy?: number;
+    maxCombo?: number;
+    score?: number;
+  };
+}
+
+export type AchievementOrMissionLogEntry = AchievementLogEntry | MissionLogEntry;
+
 export interface AchievementPlayerState {
   unlockedAchievements: Record<string, AchievementUnlockState>;
   totalAchievementPoints: number;
@@ -1325,6 +1344,12 @@ export interface MissionPlayerState {
   weeklyMissions: MissionProgress[];
   dailyResetDate: string;
   weeklyResetTime: number;
+  dailyStats: {
+    playCount: number;
+    perfectCount: number;
+    maxCombo: number;
+    uniqueSongs: string[];
+  };
   weeklyStats: {
     playCount: number;
     perfectCount: number;
@@ -1337,7 +1362,8 @@ export interface SettlementResult {
   newlyUnlockedAchievements: AchievementDefinition[];
   completedMissions: MissionDefinition[];
   totalRewards: AchievementReward;
-  logEntries: AchievementLogEntry[];
+  achievementLogEntries: AchievementLogEntry[];
+  missionLogEntries: MissionLogEntry[];
 }
 
 export const ACHIEVEMENT_RARITY_LABELS: Record<AchievementRarity, string> = {
