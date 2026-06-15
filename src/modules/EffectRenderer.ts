@@ -1,5 +1,6 @@
 import * as PIXI from 'pixi.js';
 import { JudgeResult, LANE_COUNT, NoteType } from '../types';
+import { SkinRenderer } from './SkinRenderer';
 
 interface Particle {
   sprite: PIXI.Sprite;
@@ -106,7 +107,10 @@ export class EffectRenderer {
   private particleSpritePool: PIXI.Sprite[] = [];
   private readonly MAX_PARTICLE_POOL = 300;
 
-  constructor(app: PIXI.Application) {
+  private skinRenderer?: SkinRenderer;
+  private useSkinRendering: boolean = false;
+
+  constructor(app: PIXI.Application, skinRenderer?: SkinRenderer) {
     this.app = app;
     this.container = new PIXI.Container();
     this.app.stage.addChild(this.container);
@@ -119,9 +123,45 @@ export class EffectRenderer {
     this.lyricContainer.y = 100;
     this.app.stage.addChild(this.lyricContainer);
 
+    if (skinRenderer) {
+      this.skinRenderer = skinRenderer;
+      this.useSkinRendering = true;
+      this.updateColorsFromSkin();
+    }
+
     this.precacheSharedTextures();
     this.atmosphere = this.createAtmosphere();
     this.resonance = this.createResonanceEffect();
+  }
+
+  public setSkinRenderer(skinRenderer: SkinRenderer): void {
+    this.skinRenderer = skinRenderer;
+    this.useSkinRendering = true;
+    this.updateColorsFromSkin();
+  }
+
+  public setUseSkinRendering(enabled: boolean): void {
+    this.useSkinRendering = enabled;
+    if (enabled && this.skinRenderer) {
+      this.updateColorsFromSkin();
+    }
+  }
+
+  private updateColorsFromSkin(): void {
+    if (!this.skinRenderer) return;
+    
+    const themeColors = this.skinRenderer.getThemeColors();
+    this.laneColors = themeColors.laneBorders.map(c => this.hexToNumber(c));
+    
+    this.noteTypeColors = {
+      tap: this.skinRenderer.getHitParticleColor(),
+      hold: this.hexToNumber('#9b59b6'),
+      slide: this.hexToNumber('#e74c3c')
+    };
+  }
+
+  private hexToNumber(hex: string): number {
+    return parseInt(hex.replace('#', ''), 16);
   }
 
   private precacheSharedTextures(): void {
@@ -526,6 +566,10 @@ export class EffectRenderer {
   }
 
   public createPageNote(text: string, lane: number, noteType: NoteType = 'tap', duration?: number, noteSpeed: number = 400): PIXI.Container {
+    if (this.useSkinRendering && this.skinRenderer) {
+      return this.skinRenderer.createPageNote(text, lane, noteType, duration, noteSpeed);
+    }
+    
     const noteContainer = new PIXI.Container();
     
     if (noteType === 'hold' && duration) {
@@ -611,6 +655,10 @@ export class EffectRenderer {
   }
 
   public createJudgeLine(y: number): PIXI.Graphics {
+    if (this.useSkinRendering && this.skinRenderer) {
+      return this.skinRenderer.createJudgeLine(y);
+    }
+    
     const line = new PIXI.Graphics();
     line.beginFill(0xffffff, 0.3);
     line.drawRect(0, y - 3, this.app.screen.width, 6);
@@ -717,6 +765,10 @@ export class EffectRenderer {
   }
 
   public createLaneBackground(laneCount: number): PIXI.Graphics {
+    if (this.useSkinRendering && this.skinRenderer) {
+      return this.skinRenderer.createLaneBackground(laneCount);
+    }
+    
     const graphics = new PIXI.Graphics();
     const laneWidth = this.app.screen.width / laneCount;
     
@@ -793,7 +845,12 @@ export class EffectRenderer {
   private spawnParticles(x: number, y: number, lane: number, noteType: NoteType = 'tap'): void {
     const resonanceBoost = 1 + this.resonanceIntensity * 0.8;
     const particleCount = Math.floor((noteType === 'tap' ? 12 : noteType === 'hold' ? 20 : 24) * resonanceBoost);
-    const color = this.laneColors[lane % LANE_COUNT];
+    let color = this.laneColors[lane % LANE_COUNT];
+    
+    if (this.useSkinRendering && this.skinRenderer) {
+      color = this.skinRenderer.getHitParticleColor();
+    }
+    
     const baseTex = this.particleBaseTexture || PIXI.Texture.WHITE;
     const glowTex = this.particleGlowTexture || PIXI.Texture.WHITE;
 
@@ -804,7 +861,11 @@ export class EffectRenderer {
 
       if (this.resonanceIntensity > 0.3) {
         const glow = this.acquireParticleSprite(glowTex);
-        glow.tint = 0xffd700;
+        let glowColor = 0xffd700;
+        if (this.useSkinRendering && this.skinRenderer) {
+          glowColor = this.skinRenderer.getComboParticleColor();
+        }
+        glow.tint = glowColor;
         glow.alpha = this.resonanceIntensity * 0.5;
         glow.scale.set(scale * 1.5);
         glow.x = x;
@@ -855,42 +916,48 @@ export class EffectRenderer {
   }
 
   private spawnJudgeText(x: number, y: number, result: JudgeResult, noteType: NoteType = 'tap'): void {
-    const colors: Record<JudgeResult, number> = {
-      perfect: 0xffd700,
-      great: 0x00ff00,
-      good: 0x00bfff,
-      miss: 0xff4444
-    };
+    let text: PIXI.Text;
     
-    const typeLabels: Record<NoteType, string> = {
-      tap: '',
-      hold: 'HOLD ',
-      slide: 'SLIDE '
-    };
-    
-    const baseFontSize = noteType === 'tap' ? 32 : 36;
-    const fontSize = baseFontSize * (1 + this.resonanceIntensity * 0.3);
-    const strokeThickness = 3 + this.resonanceIntensity * 2;
-    
-    const style = new PIXI.TextStyle({
-      fontFamily: 'sans-serif',
-      fontSize: fontSize,
-      fontWeight: 'bold',
-      fill: colors[result],
-      stroke: 0x000000,
-      strokeThickness: strokeThickness,
-      align: 'center',
-      dropShadow: this.resonanceIntensity > 0.2,
-      dropShadowColor: this.resonanceIntensity > 0.5 ? 0xffd700 : colors[result],
-      dropShadowBlur: this.resonanceIntensity * 10,
-      dropShadowDistance: 0
-    });
-    
-    const displayText = typeLabels[noteType] + result.toUpperCase();
-    const text = new PIXI.Text(displayText, style);
-    text.anchor.set(0.5);
-    text.x = x;
-    text.y = y - 50;
+    if (this.useSkinRendering && this.skinRenderer) {
+      text = this.skinRenderer.spawnJudgeText(x, y, result, noteType);
+    } else {
+      const colors: Record<JudgeResult, number> = {
+        perfect: 0xffd700,
+        great: 0x00ff00,
+        good: 0x00bfff,
+        miss: 0xff4444
+      };
+      
+      const typeLabels: Record<NoteType, string> = {
+        tap: '',
+        hold: 'HOLD ',
+        slide: 'SLIDE '
+      };
+      
+      const baseFontSize = noteType === 'tap' ? 32 : 36;
+      const fontSize = baseFontSize * (1 + this.resonanceIntensity * 0.3);
+      const strokeThickness = 3 + this.resonanceIntensity * 2;
+      
+      const style = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: fontSize,
+        fontWeight: 'bold',
+        fill: colors[result],
+        stroke: 0x000000,
+        strokeThickness: strokeThickness,
+        align: 'center',
+        dropShadow: this.resonanceIntensity > 0.2,
+        dropShadowColor: this.resonanceIntensity > 0.5 ? 0xffd700 : colors[result],
+        dropShadowBlur: this.resonanceIntensity * 10,
+        dropShadowDistance: 0
+      });
+      
+      const displayText = typeLabels[noteType] + result.toUpperCase();
+      text = new PIXI.Text(displayText, style);
+      text.anchor.set(0.5);
+      text.x = x;
+      text.y = y - 50;
+    }
     
     const useBurstLayer = this.layerState.currentZBoost > 0.3;
     if (useBurstLayer) {
@@ -906,32 +973,38 @@ export class EffectRenderer {
   }
 
   public addLyricChar(char: string, index: number, hit: boolean): void {
-    const style = hit
-      ? new PIXI.TextStyle({
-          fontFamily: 'serif',
-          fontSize: 30,
-          fill: 0xffd700,
-          fontWeight: 'bold',
-          stroke: 0x8b4513,
-          strokeThickness: 2,
-          dropShadow: true,
-          dropShadowColor: 0xffd700,
-          dropShadowBlur: 8
-        })
-      : new PIXI.TextStyle({
-          fontFamily: 'serif',
-          fontSize: 30,
-          fill: 0x555555,
-          fontWeight: 'bold',
-          stroke: 0x333333,
-          strokeThickness: 1
-        });
+    let text: PIXI.Text;
     
-    const displayChar = hit ? char : '＿';
-    const text = new PIXI.Text(displayChar, style);
-    text.anchor.set(0.5);
-    text.scale.set(0);
-    text.alpha = 0;
+    if (this.useSkinRendering && this.skinRenderer) {
+      text = this.skinRenderer.addLyricChar(char, index, hit);
+    } else {
+      const style = hit
+        ? new PIXI.TextStyle({
+            fontFamily: 'serif',
+            fontSize: 30,
+            fill: 0xffd700,
+            fontWeight: 'bold',
+            stroke: 0x8b4513,
+            strokeThickness: 2,
+            dropShadow: true,
+            dropShadowColor: 0xffd700,
+            dropShadowBlur: 8
+          })
+        : new PIXI.TextStyle({
+            fontFamily: 'serif',
+            fontSize: 30,
+            fill: 0x555555,
+            fontWeight: 'bold',
+            stroke: 0x333333,
+            strokeThickness: 1
+          });
+      
+      const displayChar = hit ? char : '＿';
+      text = new PIXI.Text(displayChar, style);
+      text.anchor.set(0.5);
+      text.scale.set(0);
+      text.alpha = 0;
+    }
     
     this.lyricContainer.addChild(text);
     this.litCharacters.push(text);
@@ -1035,6 +1108,10 @@ export class EffectRenderer {
   }
 
   public createBackground(): PIXI.Container {
+    if (this.useSkinRendering && this.skinRenderer) {
+      return this.skinRenderer.createBackground();
+    }
+    
     const bgContainer = new PIXI.Container();
     
     const gradient = new PIXI.Graphics();
@@ -1113,6 +1190,10 @@ export class EffectRenderer {
   }
 
   public createComboDisplay(): PIXI.Text {
+    if (this.useSkinRendering && this.skinRenderer) {
+      return this.skinRenderer.createComboDisplay();
+    }
+    
     const style = new PIXI.TextStyle({
       fontFamily: 'sans-serif',
       fontSize: 48,
@@ -1133,6 +1214,21 @@ export class EffectRenderer {
   }
 
   public updateComboDisplay(text: PIXI.Text, combo: number): void {
+    if (this.useSkinRendering && this.skinRenderer) {
+      this.skinRenderer.updateComboDisplay(text, combo);
+      if (combo > 0) {
+        const resonanceScale = 1 + this.resonanceIntensity * 0.2;
+        const currentScale = text.scale.x;
+        text.scale.set(currentScale * resonanceScale);
+        
+        if (this.resonanceIntensity > 0.3) {
+          text.style.dropShadow = true;
+          text.style.dropShadowBlur = 10 + this.resonanceIntensity * 15;
+        }
+      }
+      return;
+    }
+    
     if (combo > 0) {
       text.text = `${combo} COMBO`;
       text.visible = true;

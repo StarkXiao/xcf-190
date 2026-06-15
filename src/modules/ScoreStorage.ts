@@ -286,4 +286,10 @@ export class ScoreStorage {
       console.error('Failed to update cloud save after history clear:', e);
     }
   }
+
+  public static getMaxCombo(): number {
+    const history = this.loadAllHistory();
+    if (history.length === 0) return 0;
+    return Math.max(...history.map(entry => entry.maxCombo || 0));
+  }
 }

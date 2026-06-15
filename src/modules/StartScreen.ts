@@ -35,6 +35,8 @@ export class StartScreen {
   private onShowChapterMapCallback?: () => void;
   private onShowPoemCollectionCallback?: () => void;
   private onShowEndingGalleryCallback?: () => void;
+  private onShowShopCallback?: () => void;
+  private onShowSkinCallback?: () => void;
 
   private songLibrary: SongLibrary;
   private coverArtManager: CoverArtManager;
@@ -1449,32 +1451,52 @@ export class StartScreen {
     this.onShowEndingGalleryCallback = callback;
   }
 
+  public setOnShowShopCallback(callback: () => void): void {
+    this.onShowShopCallback = callback;
+  }
+
+  public setOnShowSkinCallback(callback: () => void): void {
+    this.onShowSkinCallback = callback;
+  }
+
   private createStoryButtons(): void {
     const buttonY = this.app.screen.height - 60;
-    const buttonWidth = 140;
+    const buttonWidth = 100;
     const buttonHeight = 44;
-    const spacing = 16;
-    const totalWidth = buttonWidth * 3 + spacing * 2;
+    const spacing = 12;
+    const totalWidth = buttonWidth * 5 + spacing * 4;
     const startX = (this.app.screen.width - totalWidth) / 2 + buttonWidth / 2;
 
     const buttons = [
       {
         icon: '📖',
-        label: '章节地图',
+        label: '章节',
         color: 0x6b9dff,
         callback: () => this.onShowChapterMapCallback?.()
       },
       {
         icon: '📜',
-        label: '诗句收集',
+        label: '诗句',
         color: 0xffd700,
         callback: () => this.onShowPoemCollectionCallback?.()
       },
       {
         icon: '🎭',
-        label: '结局画廊',
+        label: '画廊',
         color: 0xff6b9d,
         callback: () => this.onShowEndingGalleryCallback?.()
+      },
+      {
+        icon: '🛒',
+        label: '商城',
+        color: 0x9b59b6,
+        callback: () => this.onShowShopCallback?.()
+      },
+      {
+        icon: '👗',
+        label: '装扮',
+        color: 0x1abc9c,
+        callback: () => this.onShowSkinCallback?.()
       }
     ];
 
@@ -1497,13 +1519,13 @@ export class StartScreen {
       });
       const iconText = new PIXI.Text(btn.icon, iconStyle);
       iconText.anchor.set(0, 0.5);
-      iconText.x = -buttonWidth / 2 + 15;
+      iconText.x = -buttonWidth / 2 + 10;
       iconText.y = 2;
       btnContainer.addChild(iconText);
 
       const labelStyle = new PIXI.TextStyle({
         fontFamily: 'sans-serif',
-        fontSize: 14,
+        fontSize: 13,
         fontWeight: 'bold',
         fill: 0xffffff,
         stroke: 0x000000,
@@ -1512,7 +1534,7 @@ export class StartScreen {
       });
       const labelText = new PIXI.Text(btn.label, labelStyle);
       labelText.anchor.set(0, 0.5);
-      labelText.x = -buttonWidth / 2 + 42;
+      labelText.x = -buttonWidth / 2 + 32;
       labelText.y = 2;
       btnContainer.addChild(labelText);
 

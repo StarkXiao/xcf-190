@@ -15,8 +15,13 @@ import { ChapterMapView } from './modules/ChapterMapView';
 import { PoemCollectionView } from './modules/PoemCollectionView';
 import { EndingGallery } from './modules/EndingGallery';
 import { FriendBattle } from './modules/FriendBattle';
+import { SkinSystem } from './modules/SkinSystem';
+import { ShopSystem } from './modules/ShopSystem';
+import { SkinRenderer } from './modules/SkinRenderer';
+import { ShopView } from './modules/ShopView';
+import { SkinView } from './modules/SkinView';
 import { getSongById, SongWithUnlock } from './data/songs';
-import { ChartData, CharHitRecord, Difficulty, JudgeEvent, JudgeResult, LANE_COUNT, NoteData, NoteType, InputConfig, ResonanceState, PracticeConfig, DEFAULT_PRACTICE_CONFIG, BarInfo, PreloadedChart, SongChartEntry, ChartDifficultyConfig, StoryStateChangeEvent } from './types';
+import { ChartData, CharHitRecord, Difficulty, JudgeEvent, JudgeResult, LANE_COUNT, NoteData, NoteType, InputConfig, ResonanceState, PracticeConfig, DEFAULT_PRACTICE_CONFIG, BarInfo, PreloadedChart, SongChartEntry, ChartDifficultyConfig, StoryStateChangeEvent, SkinConfig } from './types';
 
 interface NoteSprite {
   container: PIXI.Container;
@@ -70,16 +75,20 @@ export class Game {
   private rhythmJudge: RhythmJudge;
   private scoreSystem: ScoreSystem;
   private effectRenderer: EffectRenderer;
+  private skinRenderer: SkinRenderer;
   private resultScreen: ResultScreen;
   private startScreen: StartScreen;
   private lyricProgress: LyricProgress;
   private bookResonance: BookResonance;
   private resonanceDisplay?: PIXI.Container;
   private removeResonanceListener?: () => void;
+  private removeSkinListener?: () => void;
   
   private chapterMapView: ChapterMapView;
   private poemCollectionView: PoemCollectionView;
   private endingGallery: EndingGallery;
+  private shopView: ShopView;
+  private skinView: SkinView;
   
   private gameContainer: PIXI.Container;
   private noteSprites: Map<number, NoteSprite> = new Map();
@@ -226,13 +235,19 @@ export class Game {
     this.scoreSystem = new ScoreSystem(defaultNotes.length);
     this.bookResonance = new BookResonance();
     
-    this.effectRenderer = new EffectRenderer(this.app);
+    SkinSystem.initialize();
+    ShopSystem.initialize();
+    
+    this.skinRenderer = new SkinRenderer(this.app);
+    this.effectRenderer = new EffectRenderer(this.app, this.skinRenderer);
     this.resultScreen = new ResultScreen(this.app);
     this.startScreen = new StartScreen(this.app);
     this.lyricProgress = new LyricProgress(this.app);
     this.chapterMapView = new ChapterMapView(this.app);
     this.poemCollectionView = new PoemCollectionView(this.app);
     this.endingGallery = new EndingGallery(this.app);
+    this.shopView = new ShopView(this.app);
+    this.skinView = new SkinView(this.app);
     
     this.gameContainer = new PIXI.Container();
     this.noteLayer = new PIXI.Container();
@@ -1282,6 +1297,16 @@ export class Game {
       this.endingGallery.show();
     });
 
+    this.startScreen.setOnShowShopCallback(() => {
+      this.hideAllScreens();
+      this.shopView.show();
+    });
+
+    this.startScreen.setOnShowSkinCallback(() => {
+      this.hideAllScreens();
+      this.skinView.show();
+    });
+
     this.chapterMapView.setOnCloseCallback(() => {
       this.showStartScreen();
     });
@@ -1295,6 +1320,14 @@ export class Game {
     });
 
     this.endingGallery.setOnCloseCallback(() => {
+      this.showStartScreen();
+    });
+
+    this.shopView.setOnCloseCallback(() => {
+      this.showStartScreen();
+    });
+
+    this.skinView.setOnCloseCallback(() => {
       this.showStartScreen();
     });
 
@@ -1312,6 +1345,18 @@ export class Game {
     });
 
     FriendBattle.initialize();
+
+    this.removeSkinListener = SkinSystem.addSkinChangeListener((config: SkinConfig) => {
+      this.skinRenderer.updateConfig(config);
+      this.refreshSkinRendering();
+    });
+  }
+
+  private refreshSkinRendering(): void {
+    if (this.gameState === 'playing' || this.gameState === 'paused') {
+      this.setupUI();
+      this.drainNoteSpritePool();
+    }
   }
 
   private hideAllScreens(): void {
@@ -1320,6 +1365,8 @@ export class Game {
     this.poemCollectionView.hide();
     this.endingGallery.hide();
     this.resultScreen.hide();
+    this.shopView.hide();
+    this.skinView.hide();
   }
 
   private showStartScreen(): void {
@@ -1627,6 +1674,7 @@ export class Game {
     let previousBest = null;
     let newlyUnlockedSongs: SongWithUnlock[] = [];
     let storyEvents: StoryStateChangeEvent[] = [];
+    let newlyUnlockedCosmetics: string[] = [];
 
     if (this.currentChart) {
       const songId = this.currentChart.chartEntry.metadata.id;
@@ -1648,6 +1696,29 @@ export class Game {
           score.rating,
           accuracy
         );
+
+        const coinReward = Math.floor(score.score / 100);
+        const maxCombo = this.scoreSystem.getMaxCombo();
+        if (maxCombo >= 50) {
+          SkinSystem.addCurrency({ coin: coinReward, star: 1 });
+        } else {
+          SkinSystem.addCurrency({ coin: coinReward });
+        }
+
+        const bestScores = ScoreStorage.getAllBestScores();
+        const allMaxCombo = ScoreStorage.getMaxCombo();
+        const storyState = this.storyChapterSystem.getState();
+        const collectedPoems = storyState.totalCollectedPoems;
+        const completedChapters = Object.entries(storyState.chapters)
+          .filter(([_, progress]) => progress.completionCount > 0)
+          .map(([chapterId]) => chapterId);
+
+        newlyUnlockedCosmetics = SkinSystem.checkAndGrantAchievementUnlocks({
+          bestScores,
+          maxCombo: allMaxCombo,
+          collectedPoems,
+          completedChapters
+        });
       }
       
       ScoreStorage.addHistoryEntry(
@@ -1677,7 +1748,8 @@ export class Game {
       storyEvents,
       this.currentChart?.chartEntry.metadata.title || '',
       this.activeChallengeId,
-      this.judgeEventRecords
+      this.judgeEventRecords,
+      newlyUnlockedCosmetics
     );
   }
 
@@ -1915,8 +1987,12 @@ export class Game {
     if (this.removeResonanceListener) {
       this.removeResonanceListener();
     }
+    if (this.removeSkinListener) {
+      this.removeSkinListener();
+    }
     this.clearPreloadCache();
     this.drainNoteSpritePool();
+    this.skinRenderer.destroy();
     this.effectRenderer.destroy();
     this.app.destroy(true);
   }

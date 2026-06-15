@@ -119,6 +119,10 @@ export class ScoreSystem {
     return this.scoreData.combo;
   }
 
+  public getMaxCombo(): number {
+    return this.scoreData.maxCombo;
+  }
+
   public getScoreValue(): number {
     return this.scoreData.score;
   }

@@ -880,3 +880,342 @@ export const FRIEND_BATTLE_STORAGE_KEY = 'floating-island-bookstore-friend-battl
 export const CHALLENGE_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
 export const MAX_CHALLENGES = 50;
 export const MAX_REPLAY_DATA = 20;
+
+export type CosmeticType = 'theme' | 'track_effect' | 'poem_frame' | 'note_skin' | 'combo_effect' | 'judge_effect';
+
+export type Rarity = 'common' | 'rare' | 'epic' | 'legendary';
+
+export type CurrencyType = 'coin' | 'jade' | 'star';
+
+export interface CurrencyAmount {
+  coin: number;
+  jade: number;
+  star: number;
+}
+
+export interface CosmeticUnlockCondition {
+  type: 'purchase' | 'rating' | 'accuracy' | 'combo' | 'chapter_complete' | 'poem_collect' | 'season_reward';
+  cost?: Partial<CurrencyAmount>;
+  minRating?: string;
+  minAccuracy?: number;
+  minCombo?: number;
+  chapterId?: string;
+  poemCount?: number;
+  seasonId?: string;
+  description: string;
+}
+
+export interface ThemeSkin {
+  id: string;
+  name: string;
+  type: 'theme';
+  rarity: Rarity;
+  description: string;
+  previewImage?: string;
+  colors: {
+    background: string;
+    backgroundGradient?: [string, string];
+    laneBackgrounds: string[];
+    laneBorders: string[];
+    judgeLine: string;
+    judgeLineGlow: string;
+    uiPrimary: string;
+    uiSecondary: string;
+    uiAccent: string;
+  };
+  particles?: {
+    ambientColor?: string;
+    hitColor?: string;
+    comboColor?: string;
+  };
+  unlockCondition: CosmeticUnlockCondition;
+  isDefault: boolean;
+}
+
+export interface TrackEffect {
+  id: string;
+  name: string;
+  type: 'track_effect';
+  rarity: Rarity;
+  description: string;
+  previewImage?: string;
+  laneGlow: {
+    color: string;
+    alpha: number;
+    blur: number;
+  };
+  hitEffect: {
+    particleCount: number;
+    particleColors: string[];
+    particleSpeed: number;
+    particleSize: [number, number];
+    ringColor: string;
+    ringExpandSpeed: number;
+  };
+  holdEffect: {
+    color: string;
+    pulseSpeed: number;
+  };
+  slideEffect: {
+    trailColor: string;
+    trailWidth: number;
+    trailAlpha: number;
+  };
+  unlockCondition: CosmeticUnlockCondition;
+  isDefault: boolean;
+}
+
+export interface PoemFrame {
+  id: string;
+  name: string;
+  type: 'poem_frame';
+  rarity: Rarity;
+  description: string;
+  previewImage?: string;
+  frameStyle: {
+    borderColor: string;
+    borderWidth: number;
+    backgroundColor: string;
+    backgroundAlpha: number;
+    cornerRadius: number;
+    decoration?: {
+      type: 'corner' | 'border' | 'pattern';
+      color: string;
+      pattern?: string;
+    };
+  };
+  textStyle: {
+    fontFamily: string;
+    fontSize: number;
+    color: string;
+    strokeColor?: string;
+    strokeWidth?: number;
+    shadow?: boolean;
+    shadowColor?: string;
+    shadowBlur?: number;
+  };
+  unlockCondition: CosmeticUnlockCondition;
+  isDefault: boolean;
+}
+
+export interface NoteSkin {
+  id: string;
+  name: string;
+  type: 'note_skin';
+  rarity: Rarity;
+  description: string;
+  previewImage?: string;
+  tap: {
+    width: number;
+    height: number;
+    cornerRadius: number;
+    fillColor: string;
+    borderColor: string;
+    borderWidth: number;
+    useLaneColor: boolean;
+  };
+  hold: {
+    bodyColor: string;
+    bodyAlpha: number;
+    headColor: string;
+    borderColor: string;
+    stripeColor: string;
+    stripeInterval: number;
+  };
+  slide: {
+    bodyColor: string;
+    bodyAlpha: number;
+    borderColor: string;
+    arrowColor: string;
+  };
+  unlockCondition: CosmeticUnlockCondition;
+  isDefault: boolean;
+}
+
+export interface ComboEffect {
+  id: string;
+  name: string;
+  type: 'combo_effect';
+  rarity: Rarity;
+  description: string;
+  previewImage?: string;
+  textStyle: {
+    fontFamily: string;
+    fontSize: [number, number];
+    colorStages: Record<string, string>;
+    strokeColor: string;
+    strokeWidth: number;
+    shadow: boolean;
+    shadowColorStages?: Record<string, string>;
+    shadowBlur: number;
+  };
+  animation: {
+    scaleBoost: number;
+    bounceIntensity: number;
+    glowIntensity: number;
+  };
+  unlockCondition: CosmeticUnlockCondition;
+  isDefault: boolean;
+}
+
+export interface JudgeEffect {
+  id: string;
+  name: string;
+  type: 'judge_effect';
+  rarity: Rarity;
+  description: string;
+  previewImage?: string;
+  perfect: JudgeEffectStyle;
+  great: JudgeEffectStyle;
+  good: JudgeEffectStyle;
+  miss: JudgeEffectStyle;
+  unlockCondition: CosmeticUnlockCondition;
+  isDefault: boolean;
+}
+
+export interface JudgeEffectStyle {
+  fontFamily: string;
+  fontSize: number;
+  color: string;
+  strokeColor: string;
+  strokeWidth: number;
+  shadow: boolean;
+  shadowColor: string;
+  shadowBlur: number;
+  animation: {
+    floatSpeed: number;
+    floatDistance: number;
+    scaleBoost: number;
+    fadeDuration: number;
+  };
+  prefix?: string;
+}
+
+export type CosmeticItem = ThemeSkin | TrackEffect | PoemFrame | NoteSkin | ComboEffect | JudgeEffect;
+
+export interface ShopItem {
+  id: string;
+  cosmeticId: string;
+  cosmeticType: CosmeticType;
+  price: Partial<CurrencyAmount>;
+  discount?: number;
+  discountEndTime?: number;
+  isFeatured: boolean;
+  featuredOrder?: number;
+  isLimited: boolean;
+  limitedEndTime?: number;
+  stock?: number;
+  soldCount: number;
+}
+
+export interface PurchaseRecord {
+  cosmeticId: string;
+  purchasedAt: number;
+  price: Partial<CurrencyAmount>;
+}
+
+export interface PlayerCosmeticState {
+  unlockedCosmetics: string[];
+  purchases: PurchaseRecord[];
+  currentSkin: {
+    theme: string;
+    trackEffect: string;
+    poemFrame: string;
+    noteSkin: string;
+    comboEffect: string;
+    judgeEffect: string;
+  };
+  currency: CurrencyAmount;
+  purchaseHistory: string[];
+}
+
+export interface SkinConfig {
+  theme: ThemeSkin;
+  trackEffect: TrackEffect;
+  poemFrame: PoemFrame;
+  noteSkin: NoteSkin;
+  comboEffect: ComboEffect;
+  judgeEffect: JudgeEffect;
+}
+
+export type CosmeticFilterType = 'all' | 'unlocked' | 'locked' | 'equipped' | CosmeticType;
+export type CosmeticSortType = 'rarity' | 'name' | 'type' | 'newest';
+
+export interface CosmeticFilter {
+  type: CosmeticFilterType;
+  rarity?: Rarity[];
+  searchQuery?: string;
+}
+
+export const SKIN_STATE_STORAGE_KEY = 'floating-island-bookstore-skin-state';
+export const SHOP_DATA_STORAGE_KEY = 'floating-island-bookstore-shop-data';
+
+export const DEFAULT_CURRENCY: CurrencyAmount = {
+  coin: 1000,
+  jade: 50,
+  star: 0
+};
+
+export const DEFAULT_SKIN_STATE: PlayerCosmeticState = {
+  unlockedCosmetics: ['default_theme', 'default_track', 'default_frame', 'default_note', 'default_combo', 'default_judge'],
+  purchases: [],
+  currentSkin: {
+    theme: 'default_theme',
+    trackEffect: 'default_track',
+    poemFrame: 'default_frame',
+    noteSkin: 'default_note',
+    comboEffect: 'default_combo',
+    judgeEffect: 'default_judge'
+  },
+  currency: { ...DEFAULT_CURRENCY },
+  purchaseHistory: []
+};
+
+export const RARITY_COLORS: Record<Rarity, string> = {
+  common: '#9CA3AF',
+  rare: '#3B82F6',
+  epic: '#8B5CF6',
+  legendary: '#F59E0B'
+};
+
+export const RARITY_LABELS: Record<Rarity, string> = {
+  common: '普通',
+  rare: '稀有',
+  epic: '史诗',
+  legendary: '传说'
+};
+
+export const RARITY_RANK: Record<string, number> = {
+  D: 0,
+  C: 1,
+  B: 2,
+  A: 3,
+  S: 4,
+  SS: 5,
+  SSS: 6,
+  common: 0,
+  rare: 1,
+  epic: 2,
+  legendary: 3
+};
+
+export const CURRENCY_LABELS: Record<CurrencyType, string> = {
+  coin: '金币',
+  jade: '玉石',
+  star: '星辰'
+};
+
+export const CURRENCY_ICONS: Record<CurrencyType, string> = {
+  coin: '🪙',
+  jade: '💎',
+  star: '⭐'
+};
+
+export const COSMETIC_TYPE_LABELS: Record<CosmeticType, string> = {
+  theme: '主题皮肤',
+  track_effect: '轨道特效',
+  poem_frame: '诗句边框',
+  note_skin: '音符外观',
+  combo_effect: '连击特效',
+  judge_effect: '判定特效'
+};

@@ -1,10 +1,11 @@
 import * as PIXI from 'pixi.js';
-import { ScoreData, CharHitRecord, NoteType, NoteTypeStats, Difficulty, BestScore, StoryStateChangeEvent, JudgeEvent } from '../types';
+import { ScoreData, CharHitRecord, NoteType, NoteTypeStats, Difficulty, BestScore, StoryStateChangeEvent, JudgeEvent, CosmeticItem } from '../types';
 import { ScoreStorage } from './ScoreStorage';
 import { SongWithUnlock } from '../data/songs';
 import { StoryChapterSystem } from './StoryChapterSystem';
 import { SeasonSystem } from './SeasonSystem';
 import { FriendBattle } from './FriendBattle';
+import { SkinSystem } from './SkinSystem';
 
 const NOTE_TYPE_LABELS: Record<NoteType, string> = {
   tap: '点击',
@@ -75,7 +76,8 @@ export class ResultScreen {
     storyEvents: StoryStateChangeEvent[] = [],
     songTitle: string = '',
     challengeId?: string,
-    judgeEvents?: JudgeEvent[]
+    judgeEvents?: JudgeEvent[],
+    newlyUnlockedCosmetics: string[] = []
   ): void {
     this.animationComplete = false;
     this.pendingAction = undefined;
@@ -126,6 +128,9 @@ export class ResultScreen {
     }
     if (seasonResult && (seasonResult.pointsGained > 0 || seasonResult.completedTasks.length > 0 || seasonResult.isNewWeeklyBest)) {
       this.createSeasonProgressNotification(seasonResult);
+    }
+    if (newlyUnlockedCosmetics && newlyUnlockedCosmetics.length > 0) {
+      this.createCosmeticUnlockNotification(newlyUnlockedCosmetics);
     }
     this.createSongInfoFooter(songId, difficulty, isPractice);
     this.createMiniLeaderboardButton(songId, difficulty);
@@ -762,6 +767,151 @@ export class ResultScreen {
       };
       animate();
     }, 2800);
+  }
+
+  private createCosmeticUnlockNotification(cosmeticIds: string[]): void {
+    if (cosmeticIds.length === 0) return;
+
+    const cosmetics: CosmeticItem[] = [];
+    for (const id of cosmeticIds) {
+      const cosmetic = SkinSystem.getAllCosmetics().find(c => c.id === id);
+      if (cosmetic) {
+        cosmetics.push(cosmetic);
+      }
+    }
+    if (cosmetics.length === 0) return;
+
+    const notificationContainer = new PIXI.Container();
+    notificationContainer.x = this.app.screen.width / 2;
+    notificationContainer.y = 180;
+
+    const totalWidth = 440;
+    const cardHeight = 80 + cosmetics.length * 55;
+
+    const bg = new PIXI.Graphics();
+    bg.beginFill(0x2a1a3a, 0.95);
+    bg.lineStyle(3, 0xffd700, 1);
+    bg.drawRoundedRect(-totalWidth / 2, -cardHeight / 2, totalWidth, cardHeight, 16);
+    bg.endFill();
+    notificationContainer.addChild(bg);
+
+    const sparkleCount = 12;
+    for (let i = 0; i < sparkleCount; i++) {
+      const angle = (i / sparkleCount) * Math.PI * 2;
+      const radius = totalWidth / 2 + 10;
+      const spark = new PIXI.Graphics();
+      spark.beginFill(0xffd700, 0.9);
+      spark.drawCircle(0, 0, 3);
+      spark.endFill();
+      spark.x = Math.cos(angle) * radius;
+      spark.y = Math.sin(angle) * (cardHeight / 2 + 10);
+      spark.name = `spark_${i}`;
+      notificationContainer.addChild(spark);
+    }
+
+    const headerStyle = new PIXI.TextStyle({
+      fontFamily: 'serif',
+      fontSize: 22,
+      fontWeight: 'bold',
+      fill: 0xffd700,
+      stroke: 0x000000,
+      strokeThickness: 3,
+      align: 'center'
+    });
+    const header = new PIXI.Text('🎨 新装扮解锁！', headerStyle);
+    header.anchor.set(0.5);
+    header.y = -cardHeight / 2 + 28;
+    notificationContainer.addChild(header);
+
+    cosmetics.forEach((cosmetic, index) => {
+      const itemY = -cardHeight / 2 + 60 + index * 55;
+
+      const itemBg = new PIXI.Graphics();
+      itemBg.beginFill(0xffd700, 0.1);
+      itemBg.lineStyle(1, 0xffd700, 0.5);
+      itemBg.drawRoundedRect(-totalWidth / 2 + 20, itemY - 22, totalWidth - 40, 44, 8);
+      itemBg.endFill();
+      notificationContainer.addChild(itemBg);
+
+      const typeLabels: Record<string, string> = {
+        theme: '主题',
+        track_effect: '轨道',
+        poem_frame: '边框',
+        note_skin: '音符',
+        combo_effect: '连击',
+        judge_effect: '判定'
+      };
+      const typeLabel = typeLabels[cosmetic.type] || cosmetic.type;
+
+      const rarityColors: Record<string, number> = {
+        common: 0x9ca3af,
+        rare: 0x3b82f6,
+        epic: 0x8b5cf6,
+        legendary: 0xf59e0b
+      };
+      const rarityColor = rarityColors[cosmetic.rarity] || 0xffffff;
+
+      const itemStyle = new PIXI.TextStyle({
+        fontFamily: 'serif',
+        fontSize: 18,
+        fontWeight: 'bold',
+        fill: rarityColor,
+        stroke: 0x000000,
+        strokeThickness: 2,
+        align: 'left'
+      });
+      const itemText = new PIXI.Text(`[${typeLabel}] ${cosmetic.name}`, itemStyle);
+      itemText.anchor.set(0, 0.5);
+      itemText.x = -totalWidth / 2 + 35;
+      itemText.y = itemY;
+      notificationContainer.addChild(itemText);
+
+      const iconStyle = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 16,
+        align: 'center'
+      });
+      const icon = new PIXI.Text('✨', iconStyle);
+      icon.anchor.set(0, 0.5);
+      icon.x = -totalWidth / 2 + 15;
+      icon.y = itemY;
+      notificationContainer.addChild(icon);
+    });
+
+    notificationContainer.scale.set(0);
+    notificationContainer.alpha = 0;
+    this.container.addChild(notificationContainer);
+
+    setTimeout(() => {
+      const startTime = Date.now();
+      const duration = 800;
+      const animate = () => {
+        const elapsed = Date.now() - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        const eased = 1 - Math.pow(1 - progress, 3);
+
+        notificationContainer.scale.set(eased);
+        notificationContainer.alpha = eased;
+        notificationContainer.rotation = (1 - eased) * 0.15;
+
+        for (let i = 0; i < sparkleCount; i++) {
+          const spark = notificationContainer.getChildByName(`spark_${i}`) as PIXI.Graphics;
+          if (spark) {
+            const angle = (i / sparkleCount) * Math.PI * 2 + elapsed / 400;
+            const baseRadius = totalWidth / 2 + 10;
+            const pulseRadius = baseRadius + Math.sin(elapsed / 120 + i) * 5;
+            spark.x = Math.cos(angle) * pulseRadius;
+            spark.y = Math.sin(angle) * (cardHeight / 2 + 10 + Math.sin(elapsed / 120 + i) * 5);
+            spark.alpha = 0.6 + Math.sin(elapsed / 150 + i * 0.8) * 0.4;
+          }
+        }
+
+        if (progress < 1 || elapsed < duration + 3000) {
+          requestAnimationFrame(animate);
+        }
+      };
+      animate();
+    }, 2200);
   }
 
   private createSeasonProgressNotification(seasonResult: {
