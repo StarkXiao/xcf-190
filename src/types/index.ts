@@ -678,3 +678,122 @@ export const SEASON_TASK_TYPES = {
 
 export const WEEKLY_RESET_INTERVAL = 7 * 24 * 60 * 60 * 1000;
 export const DAILY_RESET_HOUR = 5;
+
+export type AccountType = 'guest' | 'registered';
+
+export interface DeviceInfo {
+  deviceId: string;
+  deviceName: string;
+  platform: string;
+  lastLoginAt: number;
+  isCurrentDevice: boolean;
+}
+
+export interface AccountProfile {
+  accountId: string;
+  accountType: AccountType;
+  username?: string;
+  email?: string;
+  displayName: string;
+  avatar?: string;
+  createdAt: number;
+  lastLoginAt: number;
+  devices: DeviceInfo[];
+}
+
+export interface GuestUpgradeState {
+  isUpgrading: boolean;
+  progress: number;
+  error?: string;
+}
+
+export interface SaveVersion {
+  version: number;
+  timestamp: number;
+  deviceId: string;
+  checksum: string;
+}
+
+export type SyncStatus = 'idle' | 'syncing' | 'success' | 'error';
+
+export type ConflictResolutionStrategy = 'local_first' | 'cloud_first' | 'manual' | 'merge';
+
+export interface SaveConflict {
+  id: string;
+  field: string;
+  localValue: any;
+  cloudValue: any;
+  resolved: boolean;
+  resolution?: ConflictResolutionStrategy;
+  resolvedValue?: any;
+}
+
+export interface CloudSaveData {
+  accountId: string;
+  saveVersion: SaveVersion;
+  bestScores: BestScoreRecord;
+  scoreHistory: ScoreHistory;
+  storyState?: StoryState;
+  seasonState?: PlayerSeasonState;
+  inputConfig?: InputConfig;
+  favorites: string[];
+  settings: Record<string, any>;
+}
+
+export interface LocalSaveCache {
+  saveData: CloudSaveData;
+  lastSyncedAt: number;
+  syncStatus: SyncStatus;
+  pendingChanges: string[];
+  conflicts: SaveConflict[];
+  lastSyncError?: string;
+}
+
+export interface SyncResult {
+  success: boolean;
+  status: SyncStatus;
+  mergedFields: string[];
+  conflicts: SaveConflict[];
+  error?: string;
+}
+
+export interface MigrationCode {
+  code: string;
+  accountId: string;
+  createdAt: number;
+  expiresAt: number;
+  used: boolean;
+}
+
+export interface MigrationState {
+  isMigrating: boolean;
+  step: 'generate' | 'verify' | 'transfer' | 'complete';
+  progress: number;
+  error?: string;
+  sourceDevice?: string;
+  targetDevice?: string;
+}
+
+export interface RecoveryCheckpoint {
+  id: string;
+  timestamp: number;
+  saveData: CloudSaveData;
+  description: string;
+}
+
+export interface AccountState {
+  isLoggedIn: boolean;
+  currentAccount: AccountProfile | null;
+  guestAccount: AccountProfile | null;
+  upgradeState: GuestUpgradeState;
+  migrationState: MigrationState;
+}
+
+export const ACCOUNT_STORAGE_KEY = 'floating-island-bookstore-account';
+export const LOCAL_SAVE_CACHE_KEY = 'floating-island-bookstore-local-save';
+export const RECOVERY_CHECKPOINTS_KEY = 'floating-island-bookstore-recovery-checkpoints';
+export const MIGRATION_CODE_KEY = 'floating-island-bookstore-migration-code';
+
+export const SAVE_VERSION_INITIAL = 1;
+export const MIGRATION_CODE_EXPIRY_HOURS = 24;
+export const MAX_RECOVERY_CHECKPOINTS = 10;

@@ -1,5 +1,7 @@
 import { Game } from './Game';
 import { createChartEditor, destroyChartEditor } from './editor/index';
+import { AccountSystem } from './modules/AccountSystem';
+import { CloudSaveSystem } from './modules/CloudSaveSystem';
 
 let currentMode: 'game' | 'editor' = 'game';
 let gameInstance: Game | null = null;
@@ -11,10 +13,27 @@ const initGame = () => {
   if (container) {
     destroyEditor();
     container.style.display = 'block';
+    
+    AccountSystem.initialize();
+    CloudSaveSystem.initialize();
+    
     gameInstance = new Game(container);
     
     window.addEventListener('keydown', handleGlobalKeydown);
+    window.addEventListener('online', handleOnlineStatus);
+    window.addEventListener('offline', handleOfflineStatus);
   }
+};
+
+const handleOnlineStatus = () => {
+  console.log('Network online, syncing data...');
+  if (CloudSaveSystem.hasPendingChanges()) {
+    CloudSaveSystem.forceSync();
+  }
+};
+
+const handleOfflineStatus = () => {
+  console.log('Network offline, using local cache');
 };
 
 const initEditor = () => {
@@ -78,6 +97,8 @@ const destroyGame = () => {
     container.innerHTML = '';
   }
   window.removeEventListener('keydown', handleGlobalKeydown);
+  window.removeEventListener('online', handleOnlineStatus);
+  window.removeEventListener('offline', handleOfflineStatus);
 };
 
 const destroyEditor = () => {

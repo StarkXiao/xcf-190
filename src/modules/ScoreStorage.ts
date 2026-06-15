@@ -1,4 +1,5 @@
 import { BestScore, BestScoreRecord, Difficulty, ScoreData, ScoreHistory, ScoreHistoryEntry } from '../types';
+import { CloudSaveSystem } from './CloudSaveSystem';
 
 const BEST_STORAGE_KEY = 'floating-island-bookstore-best-scores';
 const HISTORY_STORAGE_KEY = 'floating-island-bookstore-score-history';
@@ -145,6 +146,12 @@ export class ScoreStorage {
       this.saveAllBest(allScores);
     }
 
+    try {
+      CloudSaveSystem.updateBestScores(allScores);
+    } catch (e) {
+      console.error('Failed to update cloud save with best scores:', e);
+    }
+
     return newScore;
   }
 
@@ -193,6 +200,13 @@ export class ScoreStorage {
     }
 
     this.saveAllHistory(history);
+
+    try {
+      CloudSaveSystem.updateScoreHistory(history);
+    } catch (e) {
+      console.error('Failed to update cloud save with score history:', e);
+    }
+
     return entry;
   }
 
@@ -254,9 +268,22 @@ export class ScoreStorage {
   public static clearAll(): void {
     localStorage.removeItem(BEST_STORAGE_KEY);
     localStorage.removeItem(HISTORY_STORAGE_KEY);
+    
+    try {
+      CloudSaveSystem.updateBestScores({});
+      CloudSaveSystem.updateScoreHistory([]);
+    } catch (e) {
+      console.error('Failed to update cloud save after clear:', e);
+    }
   }
 
   public static clearHistory(): void {
     localStorage.removeItem(HISTORY_STORAGE_KEY);
+    
+    try {
+      CloudSaveSystem.updateScoreHistory([]);
+    } catch (e) {
+      console.error('Failed to update cloud save after history clear:', e);
+    }
   }
 }
