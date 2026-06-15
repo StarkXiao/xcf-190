@@ -11,7 +11,8 @@ import {
   DEFAULT_COVER_ART_SIZE,
   SongChartEntry,
   ChartDifficultyConfig,
-  ChallengeInvitation
+  ChallengeInvitation,
+  CALIBRATION_TAP_COUNT
 } from '../types';
 import { ScoreStorage } from './ScoreStorage';
 import { InputConfigManager } from './InputConfigManager';
@@ -20,6 +21,7 @@ import { SongLibrary } from './SongLibrary';
 import { CoverArtManager } from './CoverArtManager';
 import { SeasonSystem } from './SeasonSystem';
 import { FriendBattle } from './FriendBattle';
+import { AudioBeatCalibrator } from './AudioBeatCalibrator';
 
 const DIFFICULTY_LABELS: Record<Difficulty, string> = {
   easy: '简单',
@@ -65,7 +67,7 @@ export class StartScreen {
   private settingsPanel: PIXI.Container;
   private settingsVisible: boolean = false;
   private settingsContent: PIXI.Container;
-  private settingsTab: 'keys' | 'gestures' | 'advanced' = 'keys';
+  private settingsTab: 'keys' | 'gestures' | 'advanced' | 'calibration' = 'keys';
   private keyBindingButtons: PIXI.Graphics[] = [];
   private capturingLane: number | null = null;
   private captureHint?: PIXI.Text;
@@ -73,6 +75,10 @@ export class StartScreen {
   private previewLaneHints: PIXI.Text[] = [];
 
   private inputConfigManager: InputConfigManager;
+  private calibrator: AudioBeatCalibrator;
+  private calibrationStatusText?: PIXI.Text;
+  private calibrationOffsetText?: PIXI.Text;
+  private calibrationQualityText?: PIXI.Text;
 
   private currentFilterType: SongLibraryFilterType = 'all';
   private currentSortType: SongLibrarySortType = 'default';
@@ -136,6 +142,7 @@ export class StartScreen {
     this.battleContent = new PIXI.Container();
     this.replayViewerPanel = new PIXI.Container();
     this.inputConfigManager = InputConfigManager.getInstance();
+    this.calibrator = AudioBeatCalibrator.getInstance();
     this.songLibrary = SongLibrary.getInstance();
     this.coverArtManager = CoverArtManager.getInstance();
     this.seasonSystem = SeasonSystem.getInstance();
@@ -4123,6 +4130,8 @@ export class StartScreen {
       this.createKeyBindingSettings(startX, contentWidth);
     } else if (this.settingsTab === 'gestures') {
       this.createGestureSettings(startX, contentWidth);
+    } else if (this.settingsTab === 'calibration') {
+      this.createCalibrationSettings(startX, contentWidth);
     } else {
       this.createAdvancedSettings(startX, contentWidth);
     }
@@ -4132,15 +4141,16 @@ export class StartScreen {
     const tabs = [
       { key: 'keys' as const, label: '按键设置', color: 0x3498db },
       { key: 'gestures' as const, label: '手势设置', color: 0x2ecc71 },
+      { key: 'calibration' as const, label: '音频校准', color: 0xe74c3c },
       { key: 'advanced' as const, label: '高级设置', color: 0xe67e22 }
     ];
 
-    const tabWidth = contentWidth / 3 - 10;
+    const tabWidth = contentWidth / tabs.length - 8;
     const tabHeight = 44;
 
     tabs.forEach((tab, index) => {
       const tabBtn = new PIXI.Graphics();
-      const x = startX + index * (tabWidth + 15);
+      const x = startX + index * (tabWidth + 10);
       tabBtn.x = x;
       tabBtn.y = 0;
 
@@ -4565,6 +4575,335 @@ export class StartScreen {
     });
 
     return btn;
+  }
+
+  private createCalibrationSettings(startX: number, contentWidth: number): void {
+    const sectionY = 70;
+
+    const sectionTitleStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 18,
+      fontWeight: 'bold',
+      fill: 0xffd700,
+      align: 'left'
+    });
+
+    const hintStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 12,
+      fill: 0x888888,
+      align: 'left'
+    });
+
+    const valueStyle = new PIXI.TextStyle({
+      fontFamily: 'monospace',
+      fontSize: 14,
+      fontWeight: 'bold',
+      fill: 0xffffff,
+      align: 'center'
+    });
+
+    const data = this.calibrator.getData();
+
+    const title = new PIXI.Text('音频与节拍校准', sectionTitleStyle);
+    title.anchor.set(0, 0);
+    title.x = startX;
+    title.y = sectionY;
+    this.settingsContent.addChild(title);
+
+    const desc = new PIXI.Text('测量设备音频延迟，确保不同终端判定一致。戴上耳机效果更佳。', hintStyle);
+    desc.anchor.set(0, 0);
+    desc.x = startX;
+    desc.y = sectionY + 30;
+    this.settingsContent.addChild(desc);
+
+    const statusY = sectionY + 65;
+    const statusLabel = new PIXI.Text('校准状态:', hintStyle);
+    statusLabel.anchor.set(0, 0);
+    statusLabel.x = startX;
+    statusLabel.y = statusY;
+    this.settingsContent.addChild(statusLabel);
+
+    const quality = this.calibrator.getCalibrationQuality();
+    const qualityLabels: Record<string, { text: string; color: number }> = {
+      uncalibrated: { text: '未校准', color: 0x888888 },
+      low: { text: '低置信度', color: 0xe74c3c },
+      medium: { text: '中等置信度', color: 0xf39c12 },
+      high: { text: '高置信度', color: 0x2ecc71 }
+    };
+    const qInfo = qualityLabels[quality];
+    this.calibrationQualityText = new PIXI.Text(qInfo.text, new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 14,
+      fontWeight: 'bold',
+      fill: qInfo.color,
+      align: 'left'
+    }));
+    this.calibrationQualityText.anchor.set(0, 0);
+    this.calibrationQualityText.x = startX + 80;
+    this.calibrationQualityText.y = statusY;
+    this.settingsContent.addChild(this.calibrationQualityText);
+
+    const offsetY = statusY + 30;
+    const offsetLabel = new PIXI.Text('当前全局偏移:', hintStyle);
+    offsetLabel.anchor.set(0, 0);
+    offsetLabel.x = startX;
+    offsetLabel.y = offsetY;
+    this.settingsContent.addChild(offsetLabel);
+
+    this.calibrationOffsetText = new PIXI.Text(
+      `${data.globalOffset > 0 ? '+' : ''}${data.globalOffset}ms`,
+      valueStyle
+    );
+    this.calibrationOffsetText.anchor.set(0, 0);
+    this.calibrationOffsetText.x = startX + 110;
+    this.calibrationOffsetText.y = offsetY;
+    this.settingsContent.addChild(this.calibrationOffsetText);
+
+    const deviceY = offsetY + 25;
+    const deviceLabel = new PIXI.Text(`设备延迟: ${data.deviceLatency}ms`, hintStyle);
+    deviceLabel.anchor.set(0, 0);
+    deviceLabel.x = startX;
+    deviceLabel.y = deviceY;
+    this.settingsContent.addChild(deviceLabel);
+
+    if (data.calibrationResult) {
+      const resultY = deviceY + 25;
+      const resultText = `样本数: ${data.calibrationResult.sampleCount} | 标准差: ${data.calibrationResult.standardDeviation}ms | 置信度: ${Math.round(data.calibrationResult.confidence * 100)}%`;
+      const resultLabel = new PIXI.Text(resultText, new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 11,
+        fill: 0x88ccff,
+        align: 'left'
+      }));
+      resultLabel.anchor.set(0, 0);
+      resultLabel.x = startX;
+      resultLabel.y = resultY;
+      this.settingsContent.addChild(resultLabel);
+    }
+
+    const btnY = deviceY + (data.calibrationResult ? 55 : 30);
+    const btnWidth = (contentWidth - 20) / 2;
+
+    const startTestBtn = this.createActionButton(
+      '开始延迟测试',
+      startX,
+      btnY,
+      btnWidth,
+      44,
+      0xe74c3c,
+      () => {
+        this.calibrator.startLatencyTest();
+        this.updateSettingsContent();
+      }
+    );
+    this.settingsContent.addChild(startTestBtn);
+
+    const tapBtn = this.createActionButton(
+      '点击记录',
+      startX + btnWidth + 20,
+      btnY,
+      btnWidth,
+      44,
+      0x6b9dff,
+      () => {
+        this.calibrator.recordTap();
+        this.updateSettingsContent();
+      }
+    );
+    this.settingsContent.addChild(tapBtn);
+
+    const testStatus = this.calibrator.getTestStatus();
+    const samples = this.calibrator.getSamples();
+    this.calibrationStatusText = new PIXI.Text('', hintStyle);
+    this.calibrationStatusText.anchor.set(0, 0);
+    this.calibrationStatusText.x = startX;
+    this.calibrationStatusText.y = btnY + 55;
+    this.settingsContent.addChild(this.calibrationStatusText);
+
+    if (testStatus === 'playing') {
+      this.calibrationStatusText.text = `测试进行中... 第 ${samples.length}/${CALIBRATION_TAP_COUNT} 次点击 (听到声音时点击"点击记录")`;
+    } else if (testStatus === 'done') {
+      this.calibrationStatusText.text = '测试完成! 偏移已自动应用';
+    }
+
+    if (samples.length > 0) {
+      const sampleY = btnY + 80;
+      const sampleTitle = new PIXI.Text('采样记录:', new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 12,
+        fontWeight: 'bold',
+        fill: 0xcccccc,
+        align: 'left'
+      }));
+      sampleTitle.anchor.set(0, 0);
+      sampleTitle.x = startX;
+      sampleTitle.y = sampleY;
+      this.settingsContent.addChild(sampleTitle);
+
+      const visibleSamples = samples.slice(-5);
+      visibleSamples.forEach((sample, i) => {
+        const offsetColor = Math.abs(sample.offset) < 30 ? 0x2ecc71 : Math.abs(sample.offset) < 60 ? 0xf39c12 : 0xe74c3c;
+        const sampleText = new PIXI.Text(
+          `#${samples.length - visibleSamples.length + i + 1}: ${sample.offset > 0 ? '+' : ''}${Math.round(sample.offset)}ms`,
+          new PIXI.TextStyle({
+            fontFamily: 'monospace',
+            fontSize: 11,
+            fill: offsetColor,
+            align: 'left'
+          })
+        );
+        sampleText.anchor.set(0, 0);
+        sampleText.x = startX + i * 85;
+        sampleText.y = sampleY + 22;
+        this.settingsContent.addChild(sampleText);
+      });
+    }
+
+    const manualY = btnY + (samples.length > 0 ? 130 : 80);
+
+    const manualTitle = new PIXI.Text('手动偏移调节', sectionTitleStyle);
+    manualTitle.anchor.set(0, 0);
+    manualTitle.x = startX;
+    manualTitle.y = manualY;
+    this.settingsContent.addChild(manualTitle);
+
+    const manualHint = new PIXI.Text('微调全局偏移量 (正=判定提前，负=判定延后)', hintStyle);
+    manualHint.anchor.set(0, 0);
+    manualHint.x = startX;
+    manualHint.y = manualY + 30;
+    this.settingsContent.addChild(manualHint);
+
+    const adjustBtns = [
+      { label: '-20ms', delta: -20, color: 0x3498db },
+      { label: '-5ms', delta: -5, color: 0x5dade2 },
+      { label: '+5ms', delta: 5, color: 0x5dade2 },
+      { label: '+20ms', delta: 20, color: 0x3498db }
+    ];
+    const adjustBtnWidth = (contentWidth - (adjustBtns.length - 1) * 10) / adjustBtns.length;
+
+    adjustBtns.forEach((btn, i) => {
+      const adjustBtn = this.createActionButton(
+        btn.label,
+        startX + i * (adjustBtnWidth + 10),
+        manualY + 55,
+        adjustBtnWidth,
+        36,
+        btn.color,
+        () => {
+          const currentOffset = this.calibrator.getGlobalOffset();
+          this.calibrator.setGlobalOffset(currentOffset + btn.delta);
+          this.updateSettingsContent();
+        }
+      );
+      this.settingsContent.addChild(adjustBtn);
+    });
+
+    const songY = manualY + 110;
+    const songTitle = new PIXI.Text('分曲校准', sectionTitleStyle);
+    songTitle.anchor.set(0, 0);
+    songTitle.x = startX;
+    songTitle.y = songY;
+    this.settingsContent.addChild(songTitle);
+
+    const songHint = new PIXI.Text('为特定曲目设置独立偏移 (全局偏移之上叠加)', hintStyle);
+    songHint.anchor.set(0, 0);
+    songHint.x = startX;
+    songHint.y = songY + 30;
+    this.settingsContent.addChild(songHint);
+
+    if (data.songOffsets.length > 0) {
+      data.songOffsets.forEach((entry, i) => {
+        const rowY = songY + 55 + i * 30;
+        const song = this.songLibrary.getSong(entry.songId);
+        const songName = song ? song.metadata.title : entry.songId;
+        const rowText = new PIXI.Text(
+          `${songName}: ${entry.offset > 0 ? '+' : ''}${entry.offset}ms`,
+          new PIXI.TextStyle({
+            fontFamily: 'sans-serif',
+            fontSize: 12,
+            fill: 0xcccccc,
+            align: 'left'
+          })
+        );
+        rowText.anchor.set(0, 0);
+        rowText.x = startX;
+        rowText.y = rowY;
+        this.settingsContent.addChild(rowText);
+
+        const removeBtn = this.createActionButton(
+          '删除',
+          startX + contentWidth - 60,
+          rowY - 4,
+          50,
+          22,
+          0xe74c3c,
+          () => {
+            this.calibrator.removeSongOffset(entry.songId);
+            this.updateSettingsContent();
+          }
+        );
+        this.settingsContent.addChild(removeBtn);
+      });
+    } else {
+      const noEntry = new PIXI.Text('暂无分曲校准数据', hintStyle);
+      noEntry.anchor.set(0, 0);
+      noEntry.x = startX;
+      noEntry.y = songY + 55;
+      this.settingsContent.addChild(noEntry);
+    }
+
+    const actionsY = songY + 55 + Math.max(data.songOffsets.length, 1) * 30 + 20;
+
+    const verifyBtn = this.createActionButton(
+      '可视化校验',
+      startX,
+      actionsY,
+      (contentWidth - 10) / 2,
+      40,
+      0x9b59b6,
+      () => {
+        this.startVisualVerification();
+      }
+    );
+    this.settingsContent.addChild(verifyBtn);
+
+    const resetCalBtn = this.createActionButton(
+      '重置校准',
+      startX + (contentWidth + 10) / 2,
+      actionsY,
+      (contentWidth - 10) / 2,
+      40,
+      0x555555,
+      () => {
+        this.calibrator.resetToDefaults();
+        this.updateSettingsContent();
+      }
+    );
+    this.settingsContent.addChild(resetCalBtn);
+  }
+
+  private startVisualVerification(): void {
+    const bpm = 120;
+    this.calibrator.startVisualVerification(bpm, 8000);
+
+    const handler = (e: KeyboardEvent) => {
+      const keyMap = this.inputConfigManager.getKeyMap();
+      if (keyMap[e.key] !== undefined) {
+        this.calibrator.recordVerificationTap();
+      }
+    };
+    window.addEventListener('keydown', handler);
+
+    setTimeout(() => {
+      window.removeEventListener('keydown', handler);
+      const stats = this.calibrator.getVerificationStats();
+      if (stats) {
+        const qualityLabel = stats.isGood ? '良好' : '需要调整';
+        console.log(`可视化校验结果: 平均偏移 ${stats.averageOffset}ms, 质量: ${qualityLabel}`);
+      }
+      this.updateSettingsContent();
+    }, 8500);
   }
 
   private createAdvancedSettings(startX: number, contentWidth: number): void {

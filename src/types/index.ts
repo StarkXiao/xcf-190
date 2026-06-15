@@ -1416,3 +1416,55 @@ export const COSMETIC_TYPE_LABELS: Record<CosmeticType, string> = {
   combo_effect: '连击特效',
   judge_effect: '判定特效'
 };
+
+export type CalibrationTestStatus = 'idle' | 'playing' | 'waiting' | 'done';
+
+export interface CalibrationSample {
+  audioTime: number;
+  tapTime: number;
+  offset: number;
+}
+
+export interface CalibrationResult {
+  averageOffset: number;
+  medianOffset: number;
+  sampleCount: number;
+  standardDeviation: number;
+  confidence: number;
+  samples: CalibrationSample[];
+}
+
+export interface SongCalibrationEntry {
+  songId: string;
+  offset: number;
+  updatedAt: number;
+}
+
+export interface CalibrationData {
+  globalOffset: number;
+  deviceLatency: number;
+  songOffsets: SongCalibrationEntry[];
+  lastCalibratedAt: number;
+  calibrationResult: CalibrationResult | null;
+}
+
+export interface BeatVisualSample {
+  expectedTime: number;
+  actualTime: number;
+  offset: number;
+}
+
+export const CALIBRATION_STORAGE_KEY = 'floating-island-bookstore-calibration';
+
+export const DEFAULT_CALIBRATION_DATA: CalibrationData = {
+  globalOffset: 0,
+  deviceLatency: 0,
+  songOffsets: [],
+  lastCalibratedAt: 0,
+  calibrationResult: null
+};
+
+export const CALIBRATION_TAP_COUNT = 10;
+export const CALIBRATION_BEAT_INTERVAL = 500;
+export const CALIBRATION_MAX_OFFSET_MS = 300;
+export const CALIBRATION_CONFIDENCE_THRESHOLD = 0.7;

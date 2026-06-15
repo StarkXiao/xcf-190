@@ -23,6 +23,7 @@ import { SkinView } from './modules/SkinView';
 import { AchievementCenterView } from './modules/AchievementCenterView';
 import { getSongById, SongWithUnlock } from './data/songs';
 import { ChartData, CharHitRecord, Difficulty, JudgeEvent, JudgeResult, LANE_COUNT, NoteData, NoteType, InputConfig, ResonanceState, PracticeConfig, DEFAULT_PRACTICE_CONFIG, BarInfo, PreloadedChart, SongChartEntry, ChartDifficultyConfig, StoryStateChangeEvent, SkinConfig, SettlementResult } from './types';
+import { AudioBeatCalibrator } from './modules/AudioBeatCalibrator';
 import { AchievementSystem } from './modules/AchievementSystem';
 
 interface NoteSprite {
@@ -130,6 +131,9 @@ export class Game {
   private songLibrary: SongLibrary;
   private storyChapterSystem: StoryChapterSystem;
   private removeConfigListener?: () => void;
+  private calibrator: AudioBeatCalibrator;
+  private calibrationOffset: number = 0;
+  private removeCalibrationListener?: () => void;
 
   private practiceConfig: PracticeConfig = { ...DEFAULT_PRACTICE_CONFIG };
   private earlyJudgeLine?: PIXI.Graphics;
@@ -149,6 +153,7 @@ export class Game {
     this.inputConfigManager = InputConfigManager.getInstance();
     this.songLibrary = SongLibrary.getInstance();
     this.storyChapterSystem = StoryChapterSystem.getInstance();
+    this.calibrator = AudioBeatCalibrator.getInstance();
     this.keyMap = this.inputConfigManager.getKeyMap();
     this.swipeThreshold = this.inputConfigManager.getSwipeThreshold();
     this.holdThreshold = this.inputConfigManager.getHoldThreshold();
@@ -271,6 +276,7 @@ export class Game {
     this.setupUI();
     this.setupCallbacks();
     this.setupConfigListener();
+    this.setupCalibrationListener();
     
     this.app.ticker.add(this.update.bind(this));
     
@@ -321,7 +327,10 @@ export class Game {
     this.songInfoDisplay = new PIXI.Container();
     
     const { chartEntry, difficultyConfig } = this.currentChart;
-    const infoText = `${chartEntry.metadata.title}  |  BPM: ${chartEntry.metadata.bpm}  |  ${difficultyConfig.label}`;
+    let infoText = `${chartEntry.metadata.title}  |  BPM: ${chartEntry.metadata.bpm}  |  ${difficultyConfig.label}`;
+    if (this.calibrationOffset !== 0) {
+      infoText += `  |  偏移: ${this.calibrationOffset > 0 ? '+' : ''}${this.calibrationOffset}ms`;
+    }
     const style = new PIXI.TextStyle({
       fontFamily: 'sans-serif',
       fontSize: 16,
@@ -553,6 +562,17 @@ export class Game {
       this.holdThreshold = config.holdThreshold;
       this.updateGestureEnabled();
       this.updateLaneHints();
+    });
+  }
+
+  private setupCalibrationListener(): void {
+    this.removeCalibrationListener = this.calibrator.addChangeListener(() => {
+      if (this.currentChart) {
+        const songId = this.currentChart.chartEntry.metadata.id;
+        this.calibrationOffset = this.calibrator.getEffectiveOffset(songId);
+      } else {
+        this.calibrationOffset = this.calibrator.getEffectiveOffset();
+      }
     });
   }
 
@@ -1434,7 +1454,7 @@ export class Game {
   private update(delta: number): void {
     if (this.gameState !== 'playing') return;
     
-    this.currentTime = performance.now() - this.startTime - this.pausedTime;
+    this.currentTime = performance.now() - this.startTime - this.pausedTime + this.calibrationOffset;
     
     const missEvents = this.rhythmJudge.update(this.currentTime);
     missEvents.forEach(event => this.processJudgeEvent(event));
@@ -1534,6 +1554,7 @@ export class Game {
     this.rhythmJudge.setConfig(noteSpeed, difficultyConfig.judgeTiming);
     this.rhythmJudge.setBPM(chartEntry.metadata.bpm);
     this.scoreSystem = new ScoreSystem(notes.length);
+    this.calibrationOffset = this.calibrator.getEffectiveOffset(songId);
     
     this.gameState = 'playing';
     this.startScreen.hide();
@@ -2035,6 +2056,9 @@ export class Game {
   public destroy(): void {
     if (this.removeConfigListener) {
       this.removeConfigListener();
+    }
+    if (this.removeCalibrationListener) {
+      this.removeCalibrationListener();
     }
     if (this.removeResonanceListener) {
       this.removeResonanceListener();
