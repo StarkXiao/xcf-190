@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>谱面编辑器 - 浮岛书屋</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: 'sans-serif', 'Microsoft YaHei';
+      background: #0a0a1a;
+      color: #ffffff;
+      overflow: hidden;
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    
+    #editor-container {
+      flex: 1;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 10px;
+    }
+    
+    canvas {
+      border-radius: 8px;
+      box-shadow: 0 0 30px rgba(107, 157, 255, 0.2);
+    }
+    
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: #888;
+    }
+    
+    .back-link {
+      position: absolute;
+      top: 15px;
+      right: 20px;
+      z-index: 100;
+    }
+    
+    .back-link a {
+      color: #6b9dff;
+      text-decoration: none;
+      font-size: 14px;
+      padding: 8px 16px;
+      background: rgba(107, 157, 255, 0.1);
+      border-radius: 6px;
+      transition: all 0.3s;
+    }
+    
+    .back-link a:hover {
+      background: rgba(107, 157, 255, 0.2);
+    }
+  </style>
+</head>
+<body>
+  <div class="back-link">
+    <a href="index.html">← 返回游戏</a>
+  </div>
+  <div id="editor-container">
+    <div class="loading">正在加载谱面编辑器...</div>
+  </div>
+  
+  <script type="module">
+    import { createChartEditor } from './src/editor/index.ts';
+    
+    const container = document.getElementById('editor-container');
+    container.innerHTML = '';
+    
+    const width = Math.min(window.innerWidth - 40, 1600);
+    const height = Math.min(window.innerHeight - 40, 900);
+    
+    const editor = createChartEditor(container, {
+      width,
+      height
+    });
+    
+    console.log('谱面编辑器已启动！');
+    console.log('快捷键: Ctrl+Z 撤销 | Ctrl+Y 重做 | Ctrl+S 保存 | 空格 播放/暂停');
+  </script>
+</body>
+</html>

@@ -153,10 +153,58 @@ export class Game {
     
     this.container.appendChild(this.app.view as HTMLCanvasElement);
     
-    const defaultChartEntry = this.songLibrary.getSong('love-poem')!;
-    const defaultSong = getSongById('love-poem')!;
-    const defaultNotes = this.songLibrary.getNotesForDifficulty(defaultChartEntry, 'normal');
-    const defaultDifficultyConfig = defaultChartEntry.difficultyConfigs.normal;
+    const testChartData = localStorage.getItem('active_test_chart');
+    let defaultChartEntry = this.songLibrary.getSong('love-poem')!;
+    let defaultSong = getSongById('love-poem')!;
+    let defaultNotes = this.songLibrary.getNotesForDifficulty(defaultChartEntry, 'normal');
+    let defaultDifficultyConfig = defaultChartEntry.difficultyConfigs.normal;
+    
+    if (testChartData) {
+      try {
+        const testChart = JSON.parse(testChartData) as ChartData;
+        this.songLibrary.registerSong({
+          metadata: {
+            id: testChart.id,
+            title: testChart.title,
+            artist: testChart.artist,
+            bpm: testChart.bpm,
+            lyrics: testChart.lyrics,
+            poemLines: testChart.poemLines,
+            genre: '自定义',
+            tags: ['编辑器测试'],
+            description: '从谱面编辑器导入的测试谱面',
+            duration: 0
+          },
+          difficulties: testChart.difficulties,
+          difficultyOverrides: {
+            easy: { ...testChart.difficultyConfigs.easy, noteCount: (testChart.difficulties.easy || []).length, maxCombo: (testChart.difficulties.easy || []).length },
+            normal: { ...testChart.difficultyConfigs.normal, noteCount: (testChart.difficulties.normal || []).length, maxCombo: (testChart.difficulties.normal || []).length },
+            hard: { ...testChart.difficultyConfigs.hard, noteCount: (testChart.difficulties.hard || []).length, maxCombo: (testChart.difficulties.hard || []).length }
+          },
+          unlockCondition: null,
+          prerequisiteSongId: null,
+          coverThemeIndex: 0
+        });
+        
+        defaultChartEntry = this.songLibrary.getSong(testChart.id)!;
+        defaultSong = {
+          ...testChart,
+          unlockCondition: null,
+          prerequisiteSongId: null
+        };
+        defaultNotes = defaultChartEntry.difficulties.normal || [];
+        defaultDifficultyConfig = defaultChartEntry.difficultyConfigs.normal;
+        
+        console.log('已加载测试谱面:', testChart.title);
+        localStorage.removeItem('active_test_chart');
+        localStorage.removeItem('editor_test_chart');
+      } catch (err) {
+        console.error('加载测试谱面失败:', err);
+        localStorage.removeItem('active_test_chart');
+        localStorage.removeItem('editor_test_chart');
+      }
+    }
+    
     this.currentChart = {
       song: defaultSong,
       chartEntry: defaultChartEntry,
