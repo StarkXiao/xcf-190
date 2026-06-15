@@ -38,6 +38,11 @@ export class Preview {
   
   private activeHoldEffects: Map<number, PIXI.Graphics> = new Map();
   private hitEffects: Array<{ sprite: PIXI.Container; life: number; maxLife: number }> = [];
+  private activeSlideEffects: Map<string, { sprite: PIXI.Graphics; trail: PIXI.Graphics[] }> = new Map();
+  
+  private judgedNotes: Set<string> = new Set();
+  private activeHolds: Map<string, { startTime: number }> = new Map();
+  private activeSlides: Map<string, { startTime: number; currentLane: number }> = new Map();
 
   constructor(
     app: PIXI.Application,
@@ -157,8 +162,37 @@ export class Preview {
   }
 
   private setupListeners(): void {
-    this.removeStateListener = this.stateManager.subscribe(() => this.render());
-    this.removePlaybackListener = this.stateManager.subscribePlayback(() => this.render());
+    this.removeStateListener = this.stateManager.subscribe(() => {
+      this.render();
+      this.resetJudgeState();
+    });
+    this.removePlaybackListener = this.stateManager.subscribePlayback(() => {
+      this.render();
+      const playbackState = this.stateManager.getPlaybackState();
+      if (playbackState.currentTime === 0) {
+        this.resetJudgeState();
+      }
+    });
+  }
+
+  private resetJudgeState(): void {
+    this.judgedNotes.clear();
+    this.activeHolds.clear();
+    this.activeSlides.clear();
+    this.activeHoldEffects.forEach(effect => {
+      this.effectLayer.removeChild(effect);
+      effect.destroy();
+    });
+    this.activeHoldEffects.clear();
+    this.activeSlideEffects.forEach(effectInfo => {
+      effectInfo.trail.forEach(trail => {
+        this.effectLayer.removeChild(trail);
+        trail.destroy();
+      });
+      this.effectLayer.removeChild(effectInfo.sprite);
+      effectInfo.sprite.destroy();
+    });
+    this.activeSlideEffects.clear();
   }
 
   private update(delta: number): void {
@@ -189,6 +223,22 @@ export class Preview {
     this.render();
   }
 
+  private getJudgeResult(timeDiff: number, judgeTiming: JudgeTiming): string | null {
+    const absTimeDiff = Math.abs(timeDiff);
+    if (absTimeDiff <= judgeTiming.perfect) return 'perfect';
+    if (absTimeDiff <= judgeTiming.great) return 'great';
+    if (absTimeDiff <= judgeTiming.good) return 'good';
+    if (absTimeDiff <= judgeTiming.miss) return 'miss';
+    return null;
+  }
+
+  private getRatioResult(ratio: number): string {
+    if (ratio >= 0.9) return 'perfect';
+    if (ratio >= 0.7) return 'great';
+    if (ratio >= 0.5) return 'good';
+    return 'miss';
+  }
+
   private checkNoteJudgments(): void {
     const playbackState = this.stateManager.getPlaybackState();
     const state = this.stateManager.getState();
@@ -198,18 +248,87 @@ export class Preview {
     if (!judgeTiming) return;
     
     state.notes.forEach(note => {
-      if (note.type !== 'tap') return;
+      if (this.judgedNotes.has(note.id)) return;
       
-      const timeDiff = currentTime - note.time;
+      const noteEndTime = note.time + (note.duration || 0);
       
-      if (timeDiff >= -judgeTiming.perfect && timeDiff <= judgeTiming.perfect) {
-        this.spawnHitEffect(note, 'perfect');
-      } else if (timeDiff >= -judgeTiming.great && timeDiff <= judgeTiming.great) {
-        this.spawnHitEffect(note, 'great');
-      } else if (timeDiff >= -judgeTiming.good && timeDiff <= judgeTiming.good) {
-        this.spawnHitEffect(note, 'good');
-      } else if (timeDiff > judgeTiming.good && timeDiff <= judgeTiming.miss) {
-        this.spawnHitEffect(note, 'miss');
+      if (note.type === 'tap') {
+        const timeDiff = currentTime - note.time;
+        const result = this.getJudgeResult(timeDiff, judgeTiming);
+        
+        if (result && timeDiff >= 0) {
+          this.judgedNotes.add(note.id);
+          this.spawnHitEffect(note, result);
+        } else if (timeDiff > judgeTiming.miss) {
+          this.judgedNotes.add(note.id);
+          this.spawnHitEffect(note, 'miss');
+        }
+      } else if (note.type === 'hold') {
+        const timeDiff = currentTime - note.time;
+        const endTimeDiff = currentTime - noteEndTime;
+        
+        if (!this.activeHolds.has(note.id)) {
+          const startResult = this.getJudgeResult(timeDiff, judgeTiming);
+          if (startResult && timeDiff >= 0) {
+            this.activeHolds.set(note.id, { startTime: currentTime });
+            this.startHoldEffect(note.lane);
+            this.spawnHitEffect(note, startResult);
+          } else if (timeDiff > judgeTiming.miss) {
+            this.judgedNotes.add(note.id);
+            this.spawnHitEffect(note, 'miss');
+          }
+        } else {
+          if (endTimeDiff >= 0) {
+            const holdInfo = this.activeHolds.get(note.id)!;
+            const holdDuration = currentTime - holdInfo.startTime;
+            const expectedDuration = note.duration || 1000;
+            const holdRatio = Math.min(1, holdDuration / expectedDuration);
+            const result = this.getRatioResult(holdRatio);
+            
+            this.judgedNotes.add(note.id);
+            this.activeHolds.delete(note.id);
+            this.stopHoldEffect(note.lane);
+            this.spawnHitEffect(note, result);
+          }
+        }
+      } else if (note.type === 'slide') {
+        const timeDiff = currentTime - note.time;
+        const endTimeDiff = currentTime - noteEndTime;
+        
+        if (!this.activeSlides.has(note.id)) {
+          const startResult = this.getJudgeResult(timeDiff, judgeTiming);
+          if (startResult && timeDiff >= 0) {
+            this.activeSlides.set(note.id, { 
+              startTime: currentTime, 
+              currentLane: note.lane 
+            });
+            this.startSlideEffect(note);
+            this.spawnHitEffect(note, startResult);
+          } else if (timeDiff > judgeTiming.miss) {
+            this.judgedNotes.add(note.id);
+            this.spawnHitEffect(note, 'miss');
+          }
+        } else {
+          const slideInfo = this.activeSlides.get(note.id)!;
+          const slideDuration = currentTime - slideInfo.startTime;
+          const expectedDuration = note.duration || 500;
+          const slideProgress = Math.min(1, slideDuration / expectedDuration);
+          const startLane = note.lane;
+          const endLane = note.endLane ?? note.lane;
+          slideInfo.currentLane = startLane + (endLane - startLane) * slideProgress;
+          
+          this.updateSlideEffect(note, slideInfo.currentLane);
+          
+          if (endTimeDiff >= 0) {
+            const slideRatio = Math.min(1, slideDuration / expectedDuration);
+            const result = this.getRatioResult(slideRatio);
+            
+            this.judgedNotes.add(note.id);
+            this.activeSlides.delete(note.id);
+            this.stopSlideEffect(note);
+            this.spawnHitEffect({ ...note, lane: endLane }, result);
+          }
+        }
       }
     });
   }
@@ -273,6 +392,85 @@ export class Preview {
     
     this.effectLayer.addChild(holdEffect);
     this.activeHoldEffects.set(lane, holdEffect);
+  }
+
+  private stopHoldEffect(lane: number): void {
+    const effect = this.activeHoldEffects.get(lane);
+    if (effect) {
+      this.effectLayer.removeChild(effect);
+      effect.destroy();
+      this.activeHoldEffects.delete(lane);
+    }
+  }
+
+  private startSlideEffect(note: EditorNote): void {
+    const x = getXFromLane(note.lane, this.config.laneWidth) + (this.config.width - LANE_COUNT * this.config.laneWidth) / 2;
+    const y = this.config.judgeLineY + 35;
+    
+    const slideEffect = new PIXI.Graphics();
+    slideEffect.beginFill(0xf39c12, 0.8);
+    slideEffect.drawCircle(0, 0, 25);
+    slideEffect.endFill();
+    slideEffect.lineStyle(3, 0xffffff, 0.8);
+    slideEffect.drawCircle(0, 0, 25);
+    slideEffect.x = x;
+    slideEffect.y = y;
+    
+    this.effectLayer.addChild(slideEffect);
+    this.activeSlideEffects.set(note.id, { sprite: slideEffect, trail: [] });
+  }
+
+  private updateSlideEffect(note: EditorNote, currentLane: number): void {
+    const effectInfo = this.activeSlideEffects.get(note.id);
+    if (!effectInfo) return;
+    
+    const x = getXFromLane(currentLane, this.config.laneWidth) + (this.config.width - LANE_COUNT * this.config.laneWidth) / 2;
+    const y = this.config.judgeLineY + 35;
+    
+    if (effectInfo.trail.length > 0) {
+      const lastTrail = effectInfo.trail[effectInfo.trail.length - 1];
+      if (Math.abs(lastTrail.x - x) > 2 || Math.abs(lastTrail.y - y) > 2) {
+        const trail = new PIXI.Graphics();
+        trail.beginFill(0xf39c12, 0.3);
+        trail.drawCircle(0, 0, 15);
+        trail.endFill();
+        trail.x = x;
+        trail.y = y;
+        this.effectLayer.addChild(trail);
+        effectInfo.trail.push(trail);
+        
+        if (effectInfo.trail.length > 8) {
+          const oldTrail = effectInfo.trail.shift()!;
+          this.effectLayer.removeChild(oldTrail);
+          oldTrail.destroy();
+        }
+      }
+    } else {
+      const trail = new PIXI.Graphics();
+      trail.beginFill(0xf39c12, 0.3);
+      trail.drawCircle(0, 0, 15);
+      trail.endFill();
+      trail.x = x;
+      trail.y = y;
+      this.effectLayer.addChild(trail);
+      effectInfo.trail.push(trail);
+    }
+    
+    effectInfo.sprite.x = x;
+    effectInfo.sprite.y = y;
+  }
+
+  private stopSlideEffect(note: EditorNote): void {
+    const effectInfo = this.activeSlideEffects.get(note.id);
+    if (effectInfo) {
+      effectInfo.trail.forEach(trail => {
+        this.effectLayer.removeChild(trail);
+        trail.destroy();
+      });
+      this.effectLayer.removeChild(effectInfo.sprite);
+      effectInfo.sprite.destroy();
+      this.activeSlideEffects.delete(note.id);
+    }
   }
 
   private updateEffects(delta: number): void {
@@ -475,11 +673,25 @@ export class Preview {
     this.activeHoldEffects.clear();
   }
 
+  clearSlideEffects(): void {
+    this.activeSlideEffects.forEach(effectInfo => {
+      effectInfo.trail.forEach(trail => {
+        this.effectLayer.removeChild(trail);
+        trail.destroy();
+      });
+      this.effectLayer.removeChild(effectInfo.sprite);
+      effectInfo.sprite.destroy();
+    });
+    this.activeSlideEffects.clear();
+  }
+
   destroy(): void {
     if (this.removeStateListener) this.removeStateListener();
     if (this.removePlaybackListener) this.removePlaybackListener();
     this.app.ticker.remove(this.update.bind(this));
+    this.resetJudgeState();
     this.clearHoldEffects();
+    this.clearSlideEffects();
     this.clearNotes();
     this.container.destroy();
   }
