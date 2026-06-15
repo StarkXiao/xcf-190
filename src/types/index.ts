@@ -797,3 +797,86 @@ export const MIGRATION_CODE_KEY = 'floating-island-bookstore-migration-code';
 export const SAVE_VERSION_INITIAL = 1;
 export const MIGRATION_CODE_EXPIRY_HOURS = 24;
 export const MAX_RECOVERY_CHECKPOINTS = 10;
+
+export type ChallengeStatus = 'pending' | 'accepted' | 'completed' | 'expired' | 'rejected';
+
+export interface FriendInfo {
+  playerId: string;
+  displayName: string;
+  avatar?: string;
+  addedAt: number;
+  lastActiveAt: number;
+}
+
+export interface ChallengeInvitation {
+  challengeId: string;
+  challengerId: string;
+  challengerName: string;
+  challengedId: string;
+  challengedName: string;
+  songId: string;
+  songTitle: string;
+  difficulty: Difficulty;
+  status: ChallengeStatus;
+  createdAt: number;
+  expiresAt: number;
+  acceptedAt?: number;
+  completedAt?: number;
+}
+
+export interface BattlePlayerResult {
+  playerId: string;
+  displayName: string;
+  score: number;
+  rating: string;
+  maxCombo: number;
+  perfect: number;
+  great: number;
+  good: number;
+  miss: number;
+  accuracy: number;
+  completedAt: number;
+}
+
+export interface BattleComparison {
+  challengeId: string;
+  songId: string;
+  songTitle: string;
+  difficulty: Difficulty;
+  challengerResult: BattlePlayerResult | null;
+  challengedResult: BattlePlayerResult | null;
+  winnerId: string | null;
+  scoreDiff: number;
+  isDraw: boolean;
+}
+
+export interface ReplayJudgeEvent {
+  result: JudgeResult;
+  time: number;
+  lane: number;
+  lyricChar: string;
+  noteType: NoteType;
+  noteId: number;
+}
+
+export interface ReplayData {
+  challengeId: string;
+  playerId: string;
+  songId: string;
+  difficulty: Difficulty;
+  judgeEvents: ReplayJudgeEvent[];
+  totalNotes: number;
+  recordedAt: number;
+}
+
+export interface FriendBattleState {
+  friends: FriendInfo[];
+  challenges: ChallengeInvitation[];
+  battleResults: BattleComparison[];
+  replayData: Record<string, ReplayData>;
+}
+
+export const FRIEND_BATTLE_STORAGE_KEY = 'floating-island-bookstore-friend-battle';
+export const CHALLENGE_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
+export const MAX_CHALLENGES = 50;
+export const MAX_REPLAY_DATA = 20;
