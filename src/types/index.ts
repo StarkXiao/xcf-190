@@ -1199,6 +1199,177 @@ export const RARITY_RANK: Record<string, number> = {
   legendary: 3
 };
 
+export const ACHIEVEMENT_STATE_STORAGE_KEY = 'floating-island-bookstore-achievement-state';
+export const ACHIEVEMENT_LOG_STORAGE_KEY = 'floating-island-bookstore-achievement-log';
+export const MISSION_STATE_STORAGE_KEY = 'floating-island-bookstore-mission-state';
+
+export type AchievementCategory = 'combo' | 'rating' | 'accuracy' | 'song_completion' | 'perfect' | 'score' | 'play_count' | 'difficulty' | 'story' | 'collection';
+export type AchievementRarity = 'bronze' | 'silver' | 'gold' | 'diamond';
+
+export type AchievementConditionType =
+  | 'max_combo'
+  | 'rating_achieved'
+  | 'accuracy_threshold'
+  | 'unique_songs_played'
+  | 'perfect_count_single'
+  | 'full_combo'
+  | 'score_threshold'
+  | 'total_play_count'
+  | 'clear_difficulty'
+  | 'chapter_completed'
+  | 'poems_collected'
+  | 'total_perfect_count'
+  | 'all_perfect_single';
+
+export interface AchievementCondition {
+  type: AchievementConditionType;
+  targetValue: number;
+  difficulty?: Difficulty;
+  minRating?: string;
+}
+
+export interface AchievementReward {
+  coin?: number;
+  jade?: number;
+  star?: number;
+  title?: string;
+  cosmeticId?: string;
+}
+
+export interface AchievementDefinition {
+  id: string;
+  category: AchievementCategory;
+  rarity: AchievementRarity;
+  title: string;
+  description: string;
+  conditions: AchievementCondition[];
+  reward: AchievementReward;
+  hidden?: boolean;
+}
+
+export interface AchievementUnlockState {
+  achievementId: string;
+  isUnlocked: boolean;
+  unlockedAt?: number;
+  progress: number;
+}
+
+export interface AchievementLogEntry {
+  achievementId: string;
+  category: AchievementCategory;
+  title: string;
+  unlockedAt: number;
+  rewards: AchievementReward;
+  triggerContext: {
+    songId?: string;
+    difficulty?: Difficulty;
+    rating?: string;
+    accuracy?: number;
+    maxCombo?: number;
+    score?: number;
+  };
+}
+
+export type MissionType = 'daily' | 'weekly';
+export type MissionConditionType =
+  | 'play_count'
+  | 'perfect_count'
+  | 'max_combo'
+  | 'rating'
+  | 'accuracy'
+  | 'score'
+  | 'unique_songs'
+  | 'clear_song'
+  | 'full_combo';
+
+export interface MissionDefinition {
+  id: string;
+  type: MissionType;
+  title: string;
+  description: string;
+  conditionType: MissionConditionType;
+  targetValue: number;
+  reward: AchievementReward;
+  difficulty?: Difficulty;
+  minRating?: string;
+  songId?: string;
+}
+
+export interface MissionProgress {
+  missionId: string;
+  currentValue: number;
+  isCompleted: boolean;
+  isClaimed: boolean;
+  completedAt?: number;
+}
+
+export interface AchievementPlayerState {
+  unlockedAchievements: Record<string, AchievementUnlockState>;
+  totalAchievementPoints: number;
+  cumulativeStats: {
+    totalPlayCount: number;
+    totalPerfectCount: number;
+    totalMaxCombo: number;
+    uniqueSongsPlayed: string[];
+    highestAccuracy: number;
+    highestScore: number;
+    chaptersCompleted: string[];
+    poemsCollected: number;
+    ratingsAchieved: string[];
+    difficultiesCleared: Difficulty[];
+  };
+}
+
+export interface MissionPlayerState {
+  dailyMissions: MissionProgress[];
+  weeklyMissions: MissionProgress[];
+  dailyResetDate: string;
+  weeklyResetTime: number;
+  weeklyStats: {
+    playCount: number;
+    perfectCount: number;
+    maxCombo: number;
+    uniqueSongs: string[];
+  };
+}
+
+export interface SettlementResult {
+  newlyUnlockedAchievements: AchievementDefinition[];
+  completedMissions: MissionDefinition[];
+  totalRewards: AchievementReward;
+  logEntries: AchievementLogEntry[];
+}
+
+export const ACHIEVEMENT_RARITY_LABELS: Record<AchievementRarity, string> = {
+  bronze: '铜',
+  silver: '银',
+  gold: '金',
+  diamond: '钻'
+};
+
+export const ACHIEVEMENT_RARITY_COLORS: Record<AchievementRarity, string> = {
+  bronze: '#CD7F32',
+  silver: '#C0C0C0',
+  gold: '#FFD700',
+  diamond: '#B9F2FF'
+};
+
+export const ACHIEVEMENT_CATEGORY_LABELS: Record<AchievementCategory, string> = {
+  combo: '连击',
+  rating: '评级',
+  accuracy: '准确率',
+  song_completion: '曲目',
+  perfect: '完美',
+  score: '分数',
+  play_count: '演奏',
+  difficulty: '难度',
+  story: '故事',
+  collection: '收集'
+};
+
+export const MISSION_DAILY_COUNT = 3;
+export const MISSION_WEEKLY_COUNT = 4;
+
 export const CURRENCY_LABELS: Record<CurrencyType, string> = {
   coin: '金币',
   jade: '玉石',

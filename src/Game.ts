@@ -21,7 +21,8 @@ import { SkinRenderer } from './modules/SkinRenderer';
 import { ShopView } from './modules/ShopView';
 import { SkinView } from './modules/SkinView';
 import { getSongById, SongWithUnlock } from './data/songs';
-import { ChartData, CharHitRecord, Difficulty, JudgeEvent, JudgeResult, LANE_COUNT, NoteData, NoteType, InputConfig, ResonanceState, PracticeConfig, DEFAULT_PRACTICE_CONFIG, BarInfo, PreloadedChart, SongChartEntry, ChartDifficultyConfig, StoryStateChangeEvent, SkinConfig } from './types';
+import { ChartData, CharHitRecord, Difficulty, JudgeEvent, JudgeResult, LANE_COUNT, NoteData, NoteType, InputConfig, ResonanceState, PracticeConfig, DEFAULT_PRACTICE_CONFIG, BarInfo, PreloadedChart, SongChartEntry, ChartDifficultyConfig, StoryStateChangeEvent, SkinConfig, SettlementResult } from './types';
+import { AchievementSystem } from './modules/AchievementSystem';
 
 interface NoteSprite {
   container: PIXI.Container;
@@ -1686,6 +1687,12 @@ export class Game {
     let newlyUnlockedSongs: SongWithUnlock[] = [];
     let storyEvents: StoryStateChangeEvent[] = [];
     let newlyUnlockedCosmetics: string[] = [];
+    let achievementSettlement: SettlementResult = {
+      newlyUnlockedAchievements: [],
+      completedMissions: [],
+      totalRewards: {},
+      logEntries: [],
+    };
 
     if (this.currentChart) {
       const songId = this.currentChart.chartEntry.metadata.id;
@@ -1730,6 +1737,25 @@ export class Game {
           collectedPoems,
           completedChapters
         });
+
+        const achievementSystem = AchievementSystem.getInstance();
+        achievementSettlement = achievementSystem.onGameComplete(
+          songId,
+          difficulty,
+          score,
+          accuracy,
+          isPractice,
+          completedChapters,
+          collectedPoems
+        );
+
+        if (achievementSettlement.totalRewards.coin || achievementSettlement.totalRewards.jade || achievementSettlement.totalRewards.star) {
+          SkinSystem.addCurrency({
+            coin: achievementSettlement.totalRewards.coin || 0,
+            jade: achievementSettlement.totalRewards.jade || 0,
+            star: achievementSettlement.totalRewards.star || 0,
+          });
+        }
       }
       
       ScoreStorage.addHistoryEntry(
@@ -1760,7 +1786,8 @@ export class Game {
       this.currentChart?.chartEntry.metadata.title || '',
       this.activeChallengeId,
       this.judgeEventRecords,
-      newlyUnlockedCosmetics
+      newlyUnlockedCosmetics,
+      achievementSettlement
     );
   }
 

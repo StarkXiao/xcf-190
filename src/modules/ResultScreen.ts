@@ -1,5 +1,5 @@
 import * as PIXI from 'pixi.js';
-import { ScoreData, CharHitRecord, NoteType, NoteTypeStats, Difficulty, BestScore, StoryStateChangeEvent, JudgeEvent, CosmeticItem, ThemeSkin, PoemFrame } from '../types';
+import { ScoreData, CharHitRecord, NoteType, NoteTypeStats, Difficulty, BestScore, StoryStateChangeEvent, JudgeEvent, CosmeticItem, ThemeSkin, PoemFrame, SettlementResult, AchievementRarity } from '../types';
 import { ScoreStorage } from './ScoreStorage';
 import { SongWithUnlock } from '../data/songs';
 import { StoryChapterSystem } from './StoryChapterSystem';
@@ -92,7 +92,8 @@ export class ResultScreen {
     songTitle: string = '',
     challengeId?: string,
     judgeEvents?: JudgeEvent[],
-    newlyUnlockedCosmetics: string[] = []
+    newlyUnlockedCosmetics: string[] = [],
+    achievementSettlement?: SettlementResult
   ): void {
     this.animationComplete = false;
     this.pendingAction = undefined;
@@ -157,6 +158,9 @@ export class ResultScreen {
     }
     if (newlyUnlockedCosmetics && newlyUnlockedCosmetics.length > 0) {
       this.createCosmeticUnlockNotification(newlyUnlockedCosmetics);
+    }
+    if (achievementSettlement && (achievementSettlement.newlyUnlockedAchievements.length > 0 || achievementSettlement.completedMissions.length > 0)) {
+      this.createAchievementSettlementNotification(achievementSettlement);
     }
     this.createSongInfoFooter(songId, difficulty, isPractice);
     this.createMiniLeaderboardButton(songId, difficulty);
@@ -938,6 +942,282 @@ export class ResultScreen {
       };
       animate();
     }, 2200);
+  }
+
+  private createAchievementSettlementNotification(settlement: SettlementResult): void {
+    const { newlyUnlockedAchievements, completedMissions, totalRewards } = settlement;
+    const hasAchievements = newlyUnlockedAchievements.length > 0;
+    const hasMissions = completedMissions.length > 0;
+    if (!hasAchievements && !hasMissions) return;
+
+    const notificationContainer = new PIXI.Container();
+    notificationContainer.x = this.app.screen.width / 2;
+
+    const totalWidth = 460;
+    const achievementHeight = hasAchievements ? newlyUnlockedAchievements.length * 48 : 0;
+    const missionHeight = hasMissions ? completedMissions.length * 36 : 0;
+    const rewardHeight = (totalRewards.coin || totalRewards.jade || totalRewards.star) ? 40 : 0;
+    const cardHeight = 60 + achievementHeight + missionHeight + rewardHeight + (hasAchievements && hasMissions ? 24 : 0);
+
+    const bg = new PIXI.Graphics();
+    bg.beginFill(0x1a1a2e, 0.96);
+    bg.lineStyle(3, 0xffd700, 1);
+    bg.drawRoundedRect(-totalWidth / 2, -cardHeight / 2, totalWidth, cardHeight, 16);
+    bg.endFill();
+    notificationContainer.addChild(bg);
+
+    const sparkleCount = 10;
+    for (let i = 0; i < sparkleCount; i++) {
+      const angle = (i / sparkleCount) * Math.PI * 2;
+      const radius = totalWidth / 2 + 10;
+      const spark = new PIXI.Graphics();
+      spark.beginFill(0xffd700, 0.9);
+      spark.drawCircle(0, 0, 3);
+      spark.endFill();
+      spark.x = Math.cos(angle) * radius;
+      spark.y = Math.sin(angle) * (cardHeight / 2 + 10);
+      spark.name = `spark_${i}`;
+      notificationContainer.addChild(spark);
+    }
+
+    const headerStyle = new PIXI.TextStyle({
+      fontFamily: 'serif',
+      fontSize: 22,
+      fontWeight: 'bold',
+      fill: 0xffd700,
+      stroke: 0x000000,
+      strokeThickness: 3,
+      align: 'center'
+    });
+    const header = new PIXI.Text('🏅 成就与任务', headerStyle);
+    header.anchor.set(0.5);
+    header.y = -cardHeight / 2 + 28;
+    notificationContainer.addChild(header);
+
+    let currentY = -cardHeight / 2 + 56;
+
+    if (hasAchievements) {
+      const sectionStyle = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 14,
+        fontWeight: 'bold',
+        fill: 0xff9d5b,
+        align: 'left'
+      });
+      const sectionLabel = new PIXI.Text('🎖 新成就解锁', sectionStyle);
+      sectionLabel.anchor.set(0, 0.5);
+      sectionLabel.x = -totalWidth / 2 + 20;
+      sectionLabel.y = currentY;
+      notificationContainer.addChild(sectionLabel);
+      currentY += 22;
+
+      const rarityColorMap: Record<AchievementRarity, number> = {
+        bronze: 0xcd7f32,
+        silver: 0xc0c0c0,
+        gold: 0xffd700,
+        diamond: 0xb9f2ff
+      };
+
+      for (const ach of newlyUnlockedAchievements) {
+        const rarityColor = rarityColorMap[ach.rarity] || 0xffffff;
+
+        const itemBg = new PIXI.Graphics();
+        itemBg.beginFill(rarityColor, 0.1);
+        itemBg.lineStyle(1, rarityColor, 0.4);
+        itemBg.drawRoundedRect(-totalWidth / 2 + 16, currentY - 18, totalWidth - 32, 40, 8);
+        itemBg.endFill();
+        notificationContainer.addChild(itemBg);
+
+        const rarityLabels: Record<AchievementRarity, string> = { bronze: '铜', silver: '银', gold: '金', diamond: '钻' };
+        const badgeStyle = new PIXI.TextStyle({
+          fontFamily: 'sans-serif',
+          fontSize: 11,
+          fontWeight: 'bold',
+          fill: rarityColor,
+          align: 'center'
+        });
+        const badge = new PIXI.Text(`[${rarityLabels[ach.rarity]}]`, badgeStyle);
+        badge.anchor.set(0, 0.5);
+        badge.x = -totalWidth / 2 + 26;
+        badge.y = currentY;
+        notificationContainer.addChild(badge);
+
+        const nameStyle = new PIXI.TextStyle({
+          fontFamily: 'serif',
+          fontSize: 16,
+          fontWeight: 'bold',
+          fill: 0xffffff,
+          stroke: 0x000000,
+          strokeThickness: 1,
+          align: 'left'
+        });
+        const nameText = new PIXI.Text(ach.title, nameStyle);
+        nameText.anchor.set(0, 0.5);
+        nameText.x = -totalWidth / 2 + 70;
+        nameText.y = currentY;
+        notificationContainer.addChild(nameText);
+
+        const rewardParts: string[] = [];
+        if (ach.reward.coin) rewardParts.push(`${ach.reward.coin}币`);
+        if (ach.reward.jade) rewardParts.push(`${ach.reward.jade}玉`);
+        if (ach.reward.star) rewardParts.push(`${ach.reward.star}星`);
+        if (rewardParts.length > 0) {
+          const rewardStyle = new PIXI.TextStyle({
+            fontFamily: 'sans-serif',
+            fontSize: 11,
+            fill: 0x6bff9d,
+            align: 'right'
+          });
+          const rewardText = new PIXI.Text(`+${rewardParts.join(' ')}`, rewardStyle);
+          rewardText.anchor.set(1, 0.5);
+          rewardText.x = totalWidth / 2 - 24;
+          rewardText.y = currentY;
+          notificationContainer.addChild(rewardText);
+        }
+
+        currentY += 48;
+      }
+    }
+
+    if (hasMissions) {
+      if (hasAchievements) {
+        currentY += 8;
+        const divider = new PIXI.Graphics();
+        divider.lineStyle(1, 0x444466, 0.5);
+        divider.moveTo(-totalWidth / 2 + 30, currentY - 4);
+        divider.lineTo(totalWidth / 2 - 30, currentY - 4);
+        notificationContainer.addChild(divider);
+        currentY += 12;
+      }
+
+      const sectionStyle = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 14,
+        fontWeight: 'bold',
+        fill: 0x6bff9d,
+        align: 'left'
+      });
+      const sectionLabel = new PIXI.Text('📋 任务完成', sectionStyle);
+      sectionLabel.anchor.set(0, 0.5);
+      sectionLabel.x = -totalWidth / 2 + 20;
+      sectionLabel.y = currentY;
+      notificationContainer.addChild(sectionLabel);
+      currentY += 22;
+
+      for (const mis of completedMissions) {
+        const typeLabel = mis.type === 'daily' ? '日' : '周';
+        const typeColor = mis.type === 'daily' ? 0xff6b9d : 0x6b9dff;
+
+        const itemBg = new PIXI.Graphics();
+        itemBg.beginFill(typeColor, 0.08);
+        itemBg.lineStyle(1, typeColor, 0.3);
+        itemBg.drawRoundedRect(-totalWidth / 2 + 16, currentY - 14, totalWidth - 32, 30, 6);
+        itemBg.endFill();
+        notificationContainer.addChild(itemBg);
+
+        const typeStyle = new PIXI.TextStyle({
+          fontFamily: 'sans-serif',
+          fontSize: 10,
+          fontWeight: 'bold',
+          fill: typeColor,
+          align: 'center'
+        });
+        const typeText = new PIXI.Text(`[${typeLabel}]`, typeStyle);
+        typeText.anchor.set(0, 0.5);
+        typeText.x = -totalWidth / 2 + 26;
+        typeText.y = currentY;
+        notificationContainer.addChild(typeText);
+
+        const nameStyle = new PIXI.TextStyle({
+          fontFamily: 'sans-serif',
+          fontSize: 14,
+          fill: 0xffffff,
+          align: 'left'
+        });
+        const nameText = new PIXI.Text(mis.title, nameStyle);
+        nameText.anchor.set(0, 0.5);
+        nameText.x = -totalWidth / 2 + 60;
+        nameText.y = currentY;
+        notificationContainer.addChild(nameText);
+
+        const rewardParts: string[] = [];
+        if (mis.reward.coin) rewardParts.push(`${mis.reward.coin}币`);
+        if (mis.reward.jade) rewardParts.push(`${mis.reward.jade}玉`);
+        if (mis.reward.star) rewardParts.push(`${mis.reward.star}星`);
+        if (rewardParts.length > 0) {
+          const rewardStyle = new PIXI.TextStyle({
+            fontFamily: 'sans-serif',
+            fontSize: 11,
+            fill: 0x6bff9d,
+            align: 'right'
+          });
+          const rewardText = new PIXI.Text(`+${rewardParts.join(' ')}`, rewardStyle);
+          rewardText.anchor.set(1, 0.5);
+          rewardText.x = totalWidth / 2 - 24;
+          rewardText.y = currentY;
+          notificationContainer.addChild(rewardText);
+        }
+
+        currentY += 36;
+      }
+    }
+
+    if (totalRewards.coin || totalRewards.jade || totalRewards.star) {
+      currentY += 8;
+      const totalParts: string[] = [];
+      if (totalRewards.coin) totalParts.push(`🪙${totalRewards.coin}`);
+      if (totalRewards.jade) totalParts.push(`💎${totalRewards.jade}`);
+      if (totalRewards.star) totalParts.push(`⭐${totalRewards.star}`);
+      const totalStyle = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 15,
+        fontWeight: 'bold',
+        fill: 0xffd700,
+        stroke: 0x000000,
+        strokeThickness: 2,
+        align: 'center'
+      });
+      const totalText = new PIXI.Text(`合计奖励: ${totalParts.join('  ')}`, totalStyle);
+      totalText.anchor.set(0.5);
+      totalText.y = currentY;
+      notificationContainer.addChild(totalText);
+    }
+
+    notificationContainer.y = 220;
+    notificationContainer.scale.set(0);
+    notificationContainer.alpha = 0;
+    this.container.addChild(notificationContainer);
+
+    setTimeout(() => {
+      const startTime = Date.now();
+      const duration = 800;
+      const animate = () => {
+        const elapsed = Date.now() - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        const eased = 1 - Math.pow(1 - progress, 3);
+
+        notificationContainer.scale.set(eased);
+        notificationContainer.alpha = eased;
+        notificationContainer.rotation = (1 - eased) * 0.12;
+
+        for (let i = 0; i < sparkleCount; i++) {
+          const spark = notificationContainer.getChildByName(`spark_${i}`) as PIXI.Graphics;
+          if (spark) {
+            const angle = (i / sparkleCount) * Math.PI * 2 + elapsed / 400;
+            const baseRadius = totalWidth / 2 + 10;
+            const pulseRadius = baseRadius + Math.sin(elapsed / 120 + i) * 5;
+            spark.x = Math.cos(angle) * pulseRadius;
+            spark.y = Math.sin(angle) * (cardHeight / 2 + 10 + Math.sin(elapsed / 120 + i) * 5);
+            spark.alpha = 0.6 + Math.sin(elapsed / 150 + i * 0.8) * 0.4;
+          }
+        }
+
+        if (progress < 1 || elapsed < duration + 3500) {
+          requestAnimationFrame(animate);
+        }
+      };
+      animate();
+    }, 2600);
   }
 
   private createSeasonProgressNotification(seasonResult: {
