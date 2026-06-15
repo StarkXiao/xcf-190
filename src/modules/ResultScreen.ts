@@ -1,9 +1,10 @@
 import * as PIXI from 'pixi.js';
-import { ScoreData, CharHitRecord, NoteType, NoteTypeStats, Difficulty, BestScore, StoryStateChangeEvent } from '../types';
+import { ScoreData, CharHitRecord, NoteType, NoteTypeStats, Difficulty, BestScore, StoryStateChangeEvent, JudgeEvent } from '../types';
 import { ScoreStorage } from './ScoreStorage';
 import { SongWithUnlock } from '../data/songs';
 import { StoryChapterSystem } from './StoryChapterSystem';
 import { SeasonSystem } from './SeasonSystem';
+import { FriendBattle } from './FriendBattle';
 
 const NOTE_TYPE_LABELS: Record<NoteType, string> = {
   tap: '点击',
@@ -40,6 +41,8 @@ export class ResultScreen {
   private miniLeaderboardPanel: PIXI.Container;
   private miniLeaderboardVisible: boolean = false;
 
+  private battleComparisonPanel: PIXI.Container;
+
   private animationComplete: boolean = false;
   private animationCompleteTimer?: number;
   private pendingAction?: 'restart' | 'back';
@@ -53,6 +56,7 @@ export class ResultScreen {
     this.container = new PIXI.Container();
     this.container.visible = false;
     this.miniLeaderboardPanel = new PIXI.Container();
+    this.battleComparisonPanel = new PIXI.Container();
     this.app.stage.addChild(this.container);
   }
 
@@ -69,7 +73,9 @@ export class ResultScreen {
     practiceSpeed: number = 1.0,
     newlyUnlockedSongs: SongWithUnlock[] = [],
     storyEvents: StoryStateChangeEvent[] = [],
-    songTitle: string = ''
+    songTitle: string = '',
+    challengeId?: string,
+    judgeEvents?: JudgeEvent[]
   ): void {
     this.animationComplete = false;
     this.pendingAction = undefined;
@@ -123,9 +129,13 @@ export class ResultScreen {
     }
     this.createSongInfoFooter(songId, difficulty, isPractice);
     this.createMiniLeaderboardButton(songId, difficulty);
+    if (challengeId && !isPractice && judgeEvents) {
+      this.createBattleSubmitButton(score, accuracy, challengeId, judgeEvents);
+    }
     this.createRestartButton();
     this.createBackToStartButton();
     this.container.addChild(this.miniLeaderboardPanel);
+    this.container.addChild(this.battleComparisonPanel);
     this.animateIn();
 
     this.animationCompleteTimer = window.setTimeout(() => {
@@ -1813,6 +1823,7 @@ export class ResultScreen {
     this.container.removeChildren();
     this.miniLeaderboardVisible = false;
     this.miniLeaderboardPanel.removeChildren();
+    this.battleComparisonPanel.removeChildren();
     this.isTransitioningOut = false;
   }
 
@@ -1888,6 +1899,290 @@ export class ResultScreen {
     this.container.addChild(buttonContainer);
 
     setTimeout(() => this.animateFadeIn(buttonContainer), 2750);
+  }
+
+  private createBattleSubmitButton(
+    score: ScoreData,
+    accuracy: number,
+    challengeId: string,
+    judgeEvents: JudgeEvent[]
+  ): void {
+    const buttonContainer = new PIXI.Container();
+    buttonContainer.x = this.app.screen.width / 2;
+    buttonContainer.y = this.app.screen.height - 120;
+
+    const buttonBg = new PIXI.Graphics();
+    buttonBg.beginFill(0xff6b9d);
+    buttonBg.lineStyle(2, 0xffd700, 0.8);
+    buttonBg.drawRoundedRect(-130, -25, 260, 50, 12);
+    buttonBg.endFill();
+
+    buttonBg.interactive = true;
+    buttonBg.cursor = 'pointer';
+
+    const cid = challengeId;
+    const sc = score;
+    const acc = accuracy;
+    const je = judgeEvents;
+    const totalNotes = score.perfect + score.great + score.good + score.miss;
+    const self = this;
+
+    buttonBg.on('pointerdown', () => {
+      const result = FriendBattle.submitBattleResult(cid, sc, acc, je, totalNotes);
+      if (result) {
+        buttonBg.off('pointerdown');
+        buttonBg.clear();
+        buttonBg.beginFill(0x6bff9d, 0.8);
+        buttonBg.drawRoundedRect(-130, -25, 260, 50, 12);
+        buttonBg.endFill();
+
+        buttonText.text = '✓ 成绩已提交';
+        buttonText.style.fill = 0x000000;
+
+        const comparison = FriendBattle.getBattleComparison(cid);
+        if (comparison) {
+          self.showBattleComparisonPanel(comparison);
+        }
+      }
+    });
+
+    buttonContainer.addChild(buttonBg);
+
+    const buttonStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 20,
+      fontWeight: 'bold',
+      fill: 0xffffff,
+      align: 'center'
+    });
+
+    const buttonText = new PIXI.Text('⚔ 提交对战成绩', buttonStyle);
+    buttonText.anchor.set(0.5);
+    buttonContainer.addChild(buttonText);
+
+    buttonContainer.alpha = 0;
+    this.container.addChild(buttonContainer);
+
+    setTimeout(() => this.animateFadeIn(buttonContainer), 2800);
+  }
+
+  private showBattleComparisonPanel(comparison: import('../types').BattleComparison): void {
+    this.battleComparisonPanel.removeChildren();
+
+    const panelWidth = Math.min(600, this.app.screen.width - 40);
+    const panelHeight = 380;
+    const panelX = (this.app.screen.width - panelWidth) / 2;
+    const panelY = 100;
+
+    const mask = new PIXI.Graphics();
+    mask.beginFill(0x000000, 0.85);
+    mask.drawRect(0, 0, this.app.screen.width, this.app.screen.height);
+    mask.endFill();
+    mask.interactive = true;
+    mask.on('pointerdown', () => {
+      this.battleComparisonPanel.visible = false;
+    });
+    this.battleComparisonPanel.addChild(mask);
+
+    const panelBg = new PIXI.Graphics();
+    panelBg.beginFill(0x151530, 0.98);
+    panelBg.lineStyle(3, 0xff6b9d, 0.8);
+    panelBg.drawRoundedRect(panelX, panelY, panelWidth, panelHeight, 16);
+    panelBg.endFill();
+    this.battleComparisonPanel.addChild(panelBg);
+
+    const titleStyle = new PIXI.TextStyle({
+      fontFamily: 'serif',
+      fontSize: 24,
+      fill: 0xffd700,
+      fontWeight: 'bold',
+      stroke: 0x8b4513,
+      strokeThickness: 2,
+      align: 'center'
+    });
+
+    const titleText = new PIXI.Text('⚔ 对战结算对比', titleStyle);
+    titleText.anchor.set(0.5);
+    titleText.x = this.app.screen.width / 2;
+    titleText.y = panelY + 30;
+    this.battleComparisonPanel.addChild(titleText);
+
+    const closeBtn = new PIXI.Graphics();
+    closeBtn.x = panelX + panelWidth - 40;
+    closeBtn.y = panelY + 25;
+    closeBtn.beginFill(0xff6b6b, 0.9);
+    closeBtn.drawRoundedRect(-15, -15, 30, 30, 8);
+    closeBtn.endFill();
+    closeBtn.interactive = true;
+    closeBtn.cursor = 'pointer';
+    closeBtn.on('pointerdown', () => {
+      this.battleComparisonPanel.visible = false;
+    });
+
+    const closeStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 16,
+      fontWeight: 'bold',
+      fill: 0xffffff,
+      align: 'center'
+    });
+    const closeText = new PIXI.Text('✕', closeStyle);
+    closeText.anchor.set(0.5);
+    closeBtn.addChild(closeText);
+    this.battleComparisonPanel.addChild(closeBtn);
+
+    const songStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 14,
+      fill: 0xaaaaaa,
+      align: 'center'
+    });
+    const songText = new PIXI.Text(
+      `${comparison.songTitle} [${DIFFICULTY_LABELS[comparison.difficulty]}]`,
+      songStyle
+    );
+    songText.anchor.set(0.5);
+    songText.x = this.app.screen.width / 2;
+    songText.y = panelY + 60;
+    this.battleComparisonPanel.addChild(songText);
+
+    const leftX = panelX + 20;
+    const rightX = panelX + panelWidth / 2 + 10;
+    const colWidth = panelWidth / 2 - 30;
+    const startY = panelY + 85;
+
+    if (comparison.challengerResult) {
+      this.renderPlayerResultCard(comparison.challengerResult, leftX, startY, colWidth, comparison.winnerId === comparison.challengerResult.playerId);
+    }
+    if (comparison.challengedResult) {
+      this.renderPlayerResultCard(comparison.challengedResult, rightX, startY, colWidth, comparison.winnerId === comparison.challengedResult.playerId);
+    }
+
+    const vsStyle = new PIXI.TextStyle({
+      fontFamily: 'serif',
+      fontSize: 28,
+      fontWeight: 'bold',
+      fill: 0xffd700,
+      stroke: 0x000000,
+      strokeThickness: 3,
+      align: 'center'
+    });
+    const vsText = new PIXI.Text('VS', vsStyle);
+    vsText.anchor.set(0.5);
+    vsText.x = this.app.screen.width / 2;
+    vsText.y = startY + 70;
+    this.battleComparisonPanel.addChild(vsText);
+
+    const resultY = startY + 210;
+    const resultStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 22,
+      fontWeight: 'bold',
+      fill: comparison.isDraw ? 0xffd700 : 0x6bff9d,
+      stroke: 0x000000,
+      strokeThickness: 2,
+      align: 'center'
+    });
+
+    let resultLabel = '等待对手...';
+    if (comparison.challengerResult && comparison.challengedResult) {
+      resultLabel = comparison.isDraw ? '平局！' : '🎉 胜利！';
+      if (!comparison.isDraw && comparison.winnerId) {
+        const winner = comparison.winnerId === comparison.challengerResult.playerId
+          ? comparison.challengerResult.displayName
+          : comparison.challengedResult.displayName;
+        resultLabel = `${winner} 获胜！`;
+        resultStyle.fill = comparison.isDraw ? 0xffd700 : 0x6bff9d;
+      }
+    }
+
+    const resultText = new PIXI.Text(resultLabel, resultStyle);
+    resultText.anchor.set(0.5);
+    resultText.x = this.app.screen.width / 2;
+    resultText.y = resultY;
+    this.battleComparisonPanel.addChild(resultText);
+
+    if (comparison.challengerResult && comparison.challengedResult) {
+      const diffStyle = new PIXI.TextStyle({
+        fontFamily: 'monospace',
+        fontSize: 14,
+        fill: 0x88ccff,
+        align: 'center'
+      });
+      const diffText = new PIXI.Text(
+        `分差: ${comparison.scoreDiff}  |  连击差: ${Math.abs(comparison.challengerResult.maxCombo - comparison.challengedResult.maxCombo)}`,
+        diffStyle
+      );
+      diffText.anchor.set(0.5);
+      diffText.x = this.app.screen.width / 2;
+      diffText.y = resultY + 30;
+      this.battleComparisonPanel.addChild(diffText);
+    }
+
+    this.battleComparisonPanel.visible = true;
+  }
+
+  private renderPlayerResultCard(result: import('../types').BattlePlayerResult, x: number, y: number, width: number, isWinner: boolean): void {
+    const cardHeight = 200;
+
+    const bg = new PIXI.Graphics();
+    bg.beginFill(isWinner ? 0x2a3a2a : 0x1a1a2a, 0.8);
+    bg.lineStyle(2, isWinner ? 0xffd700 : 0x666688, 0.7);
+    bg.drawRoundedRect(x, y, width, cardHeight, 10);
+    bg.endFill();
+    this.battleComparisonPanel.addChild(bg);
+
+    if (isWinner) {
+      const crownStyle = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 20,
+        align: 'center'
+      });
+      const crown = new PIXI.Text('👑', crownStyle);
+      crown.anchor.set(0.5);
+      crown.x = x + width / 2;
+      crown.y = y + 15;
+      this.battleComparisonPanel.addChild(crown);
+    }
+
+    const nameStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 16,
+      fontWeight: 'bold',
+      fill: isWinner ? 0xffd700 : 0xffffff,
+      align: 'center'
+    });
+    const name = new PIXI.Text(result.displayName, nameStyle);
+    name.anchor.set(0.5);
+    name.x = x + width / 2;
+    name.y = y + (isWinner ? 38 : 18);
+    this.battleComparisonPanel.addChild(name);
+
+    const statStyle = new PIXI.TextStyle({
+      fontFamily: 'monospace',
+      fontSize: 13,
+      fill: 0xcccccc,
+      align: 'left'
+    });
+
+    const stats = [
+      `分数: ${result.score}`,
+      `评级: ${result.rating}`,
+      `连击: ${result.maxCombo}x`,
+      `准确率: ${result.accuracy.toFixed(1)}%`,
+      `Perfect: ${result.perfect}`,
+      `Great: ${result.great}`,
+      `Good: ${result.good}`,
+      `Miss: ${result.miss}`
+    ];
+
+    stats.forEach((stat, i) => {
+      const text = new PIXI.Text(stat, statStyle);
+      text.anchor.set(0, 0);
+      text.x = x + 15;
+      text.y = y + (isWinner ? 55 : 35) + i * 18;
+      this.battleComparisonPanel.addChild(text);
+    });
   }
 
   private animateIn(): void {

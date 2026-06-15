@@ -10,7 +10,8 @@ import {
   CoverArt,
   DEFAULT_COVER_ART_SIZE,
   SongChartEntry,
-  ChartDifficultyConfig
+  ChartDifficultyConfig,
+  ChallengeInvitation
 } from '../types';
 import { ScoreStorage } from './ScoreStorage';
 import { InputConfigManager } from './InputConfigManager';
@@ -18,6 +19,7 @@ import { ChapterUnlockManager } from './ChapterUnlockManager';
 import { SongLibrary } from './SongLibrary';
 import { CoverArtManager } from './CoverArtManager';
 import { SeasonSystem } from './SeasonSystem';
+import { FriendBattle } from './FriendBattle';
 
 const DIFFICULTY_LABELS: Record<Difficulty, string> = {
   easy: '简单',
@@ -83,6 +85,13 @@ export class StartScreen {
   private seasonTab: 'tasks' | 'rewards' | 'songs' | 'rank' = 'tasks';
   private seasonSystem: SeasonSystem;
 
+  private battlePanel: PIXI.Container;
+  private battlePanelVisible: boolean = false;
+  private battleContent: PIXI.Container;
+  private battleTab: 'challenges' | 'friends' | 'results' | 'replay' = 'challenges';
+  private onAcceptChallengeCallback?: (challengeId: string) => void;
+  private onWatchReplayCallback?: (challengeId: string, playerId: string) => void;
+
   constructor(app: PIXI.Application) {
     this.app = app;
     this.container = new PIXI.Container();
@@ -96,6 +105,8 @@ export class StartScreen {
     this.coverArtContainer = new PIXI.Container();
     this.seasonPanel = new PIXI.Container();
     this.seasonContent = new PIXI.Container();
+    this.battlePanel = new PIXI.Container();
+    this.battleContent = new PIXI.Container();
     this.inputConfigManager = InputConfigManager.getInstance();
     this.songLibrary = SongLibrary.getInstance();
     this.coverArtManager = CoverArtManager.getInstance();
@@ -126,6 +137,8 @@ export class StartScreen {
     this.createStoryButtons();
     this.createSeasonToggle();
     this.createSeasonPanel();
+    this.createBattleToggle();
+    this.createBattlePanel();
     this.setupConfigChangeListener();
     this.setupKeyCaptureListener();
   }
@@ -2458,6 +2471,903 @@ export class StartScreen {
     }
   }
 
+  private createBattleToggle(): void {
+    const btnContainer = new PIXI.Graphics();
+    btnContainer.x = 70;
+    btnContainer.y = 170;
+
+    btnContainer.beginFill(0xff6b9d, 0.9);
+    btnContainer.lineStyle(2, 0xffd700, 0.6);
+    btnContainer.drawRoundedRect(-40, -20, 80, 40, 10);
+    btnContainer.endFill();
+
+    const btnStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 13,
+      fontWeight: 'bold',
+      fill: 0xffffff,
+      align: 'center'
+    });
+
+    const text = new PIXI.Text('⚔ 对战', btnStyle);
+    text.anchor.set(0.5);
+    btnContainer.addChild(text);
+
+    const pendingCount = FriendBattle.getPendingChallenges().length;
+    if (pendingCount > 0) {
+      const badge = new PIXI.Graphics();
+      badge.beginFill(0xff0000, 1);
+      badge.drawCircle(28, -14, 10);
+      badge.endFill();
+      btnContainer.addChild(badge);
+
+      const badgeStyle = new PIXI.TextStyle({
+        fontFamily: 'monospace',
+        fontSize: 11,
+        fontWeight: 'bold',
+        fill: 0xffffff,
+        align: 'center'
+      });
+      const badgeText = new PIXI.Text(`${pendingCount}`, badgeStyle);
+      badgeText.anchor.set(0.5);
+      badgeText.x = 28;
+      badgeText.y = -14;
+      btnContainer.addChild(badgeText);
+    }
+
+    btnContainer.interactive = true;
+    btnContainer.cursor = 'pointer';
+    btnContainer.on('pointerdown', () => this.toggleBattlePanel());
+
+    this.container.addChild(btnContainer);
+  }
+
+  private createBattlePanel(): void {
+    this.battlePanel.x = 0;
+    this.battlePanel.y = 0;
+    this.battlePanel.visible = false;
+
+    const mask = new PIXI.Graphics();
+    mask.beginFill(0x000000, 0.9);
+    mask.drawRect(0, 0, this.app.screen.width, this.app.screen.height);
+    mask.endFill();
+    mask.interactive = true;
+    this.battlePanel.addChild(mask);
+
+    const panelWidth = Math.min(720, this.app.screen.width - 40);
+    const panelHeight = Math.min(720, this.app.screen.height - 60);
+    const panelX = (this.app.screen.width - panelWidth) / 2;
+    const panelY = (this.app.screen.height - panelHeight) / 2;
+
+    const panelBg = new PIXI.Graphics();
+    panelBg.beginFill(0x151530, 0.98);
+    panelBg.lineStyle(3, 0xff6b9d, 0.8);
+    panelBg.drawRoundedRect(panelX, panelY, panelWidth, panelHeight, 16);
+    panelBg.endFill();
+    this.battlePanel.addChild(panelBg);
+
+    const titleStyle = new PIXI.TextStyle({
+      fontFamily: 'serif',
+      fontSize: 28,
+      fill: 0xffd700,
+      fontWeight: 'bold',
+      stroke: 0x8b4513,
+      strokeThickness: 2,
+      align: 'center'
+    });
+
+    const title = new PIXI.Text('⚔ 好友对战', titleStyle);
+    title.anchor.set(0.5);
+    title.x = this.app.screen.width / 2;
+    title.y = panelY + 35;
+    this.battlePanel.addChild(title);
+
+    const closeBtn = new PIXI.Graphics();
+    closeBtn.x = panelX + panelWidth - 40;
+    closeBtn.y = panelY + 30;
+    closeBtn.beginFill(0xff6b6b, 0.9);
+    closeBtn.drawRoundedRect(-18, -18, 36, 36, 8);
+    closeBtn.endFill();
+    closeBtn.interactive = true;
+    closeBtn.cursor = 'pointer';
+    closeBtn.on('pointerdown', () => this.toggleBattlePanel());
+
+    const closeStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 18,
+      fontWeight: 'bold',
+      fill: 0xffffff,
+      align: 'center'
+    });
+    const closeText = new PIXI.Text('✕', closeStyle);
+    closeText.anchor.set(0.5);
+    closeBtn.addChild(closeText);
+    this.battlePanel.addChild(closeBtn);
+
+    const stats = FriendBattle.getBattleStats();
+    const statsStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 13,
+      fill: 0x88ccff,
+      align: 'center'
+    });
+    const statsText = new PIXI.Text(
+      `总对战: ${stats.totalBattles}  |  胜: ${stats.wins}  负: ${stats.losses}  平: ${stats.draws}  |  胜率: ${stats.winRate.toFixed(0)}%`,
+      statsStyle
+    );
+    statsText.anchor.set(0.5);
+    statsText.x = this.app.screen.width / 2;
+    statsText.y = panelY + 70;
+    this.battlePanel.addChild(statsText);
+
+    this.createBattleTabs(panelX, panelY, panelWidth);
+
+    this.battleContent.x = 0;
+    this.battleContent.y = panelY + 130;
+    this.battlePanel.addChild(this.battleContent);
+
+    this.updateBattleContent();
+
+    this.container.addChild(this.battlePanel);
+  }
+
+  private createBattleTabs(panelX: number, panelY: number, panelWidth: number): void {
+    const tabs = [
+      { key: 'challenges' as const, label: '⚔ 挑战', color: 0xff6b9d },
+      { key: 'friends' as const, label: '👥 好友', color: 0x6b9dff },
+      { key: 'results' as const, label: '📊 战绩', color: 0xffd700 },
+      { key: 'replay' as const, label: '🎬 回放', color: 0x6bff9d }
+    ];
+
+    const tabWidth = (panelWidth - 60) / 4;
+    const tabHeight = 40;
+    const tabY = panelY + 90;
+
+    tabs.forEach((tab, index) => {
+      const btn = new PIXI.Graphics();
+      const isSelected = this.battleTab === tab.key;
+      const x = panelX + 30 + index * tabWidth;
+
+      if (isSelected) {
+        btn.lineStyle(2, tab.color, 1);
+        btn.beginFill(tab.color, 0.3);
+      } else {
+        btn.lineStyle(1, 0x666688, 0.6);
+        btn.beginFill(0x2a2a4a, 0.8);
+      }
+      btn.drawRoundedRect(x, tabY, tabWidth - 6, tabHeight, 8);
+      btn.endFill();
+
+      const btnStyle = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 13,
+        fontWeight: 'bold',
+        fill: isSelected ? 0xffffff : 0xaaaaaa,
+        align: 'center'
+      });
+
+      const btnText = new PIXI.Text(tab.label, btnStyle);
+      btnText.anchor.set(0.5);
+      btnText.x = x + (tabWidth - 6) / 2;
+      btnText.y = tabY + tabHeight / 2;
+      btn.addChild(btnText);
+
+      btn.interactive = true;
+      btn.cursor = 'pointer';
+      btn.on('pointerdown', () => {
+        this.battleTab = tab.key;
+        this.rebuildBattleTabs(panelX, panelY, panelWidth);
+        this.updateBattleContent();
+      });
+
+      this.battlePanel.addChild(btn);
+    });
+  }
+
+  private rebuildBattleTabs(panelX: number, panelY: number, panelWidth: number): void {
+    const tabKeys = ['challenges', 'friends', 'results', 'replay'];
+    tabKeys.forEach(key => {
+      const tab = this.battlePanel.getChildByName(`battleTab_${key}`);
+      if (tab) this.battlePanel.removeChild(tab);
+    });
+    this.createBattleTabs(panelX, panelY, panelWidth);
+  }
+
+  private toggleBattlePanel(): void {
+    this.battlePanelVisible = !this.battlePanelVisible;
+    this.battlePanel.visible = this.battlePanelVisible;
+    if (this.battlePanelVisible) {
+      this.battleTab = 'challenges';
+      const panelWidth = Math.min(720, this.app.screen.width - 40);
+      const panelX = (this.app.screen.width - panelWidth) / 2;
+      const panelY = (this.app.screen.height - Math.min(720, this.app.screen.height - 60)) / 2;
+      this.rebuildBattleTabs(panelX, panelY, panelWidth);
+      this.updateBattleContent();
+    }
+  }
+
+  private updateBattleContent(): void {
+    this.battleContent.removeChildren();
+    switch (this.battleTab) {
+      case 'challenges': this.renderBattleChallenges(); break;
+      case 'friends': this.renderBattleFriends(); break;
+      case 'results': this.renderBattleResults(); break;
+      case 'replay': this.renderBattleReplay(); break;
+    }
+  }
+
+  private renderBattleChallenges(): void {
+    const panelWidth = Math.min(720, this.app.screen.width - 40);
+    const contentWidth = panelWidth - 60;
+    const startX = (this.app.screen.width - panelWidth) / 2 + 30;
+
+    const pending = FriendBattle.getPendingChallenges();
+    const accepted = FriendBattle.getAcceptedChallenges();
+
+    let currentY = 0;
+
+    const sectionStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 16,
+      fontWeight: 'bold',
+      fill: 0xffd700,
+      align: 'left'
+    });
+
+    if (accepted.length > 0) {
+      const label = new PIXI.Text('🔥 进行中的挑战', sectionStyle);
+      label.anchor.set(0, 0);
+      label.x = startX;
+      label.y = currentY;
+      this.battleContent.addChild(label);
+      currentY += 28;
+
+      accepted.forEach(ch => {
+        currentY = this.renderChallengeItem(ch, startX, currentY, contentWidth, true);
+        currentY += 8;
+      });
+      currentY += 15;
+    }
+
+    if (pending.length > 0) {
+      const label = new PIXI.Text('📬 待处理的挑战', sectionStyle);
+      label.anchor.set(0, 0);
+      label.x = startX;
+      label.y = currentY;
+      this.battleContent.addChild(label);
+      currentY += 28;
+
+      pending.forEach(ch => {
+        currentY = this.renderChallengeItem(ch, startX, currentY, contentWidth, false);
+        currentY += 8;
+      });
+    }
+
+    if (pending.length === 0 && accepted.length === 0) {
+      const emptyStyle = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 16,
+        fill: 0x666666,
+        fontStyle: 'italic',
+        align: 'center'
+      });
+      const empty = new PIXI.Text('暂无挑战，去添加好友并发起挑战吧！', emptyStyle);
+      empty.anchor.set(0.5);
+      empty.x = this.app.screen.width / 2;
+      empty.y = 60;
+      this.battleContent.addChild(empty);
+    }
+
+    currentY += 20;
+    const addChallengeLabel = new PIXI.Text('🎯 对当前曲目发起挑战', sectionStyle);
+    addChallengeLabel.anchor.set(0, 0);
+    addChallengeLabel.x = startX;
+    addChallengeLabel.y = currentY;
+    this.battleContent.addChild(addChallengeLabel);
+    currentY += 28;
+
+    const entry = this.getCurrentEntry();
+    if (entry) {
+      const songTitle = entry.chart.metadata.title;
+      const songId = entry.chart.metadata.id;
+      const diffLabel = DIFFICULTY_LABELS[this.selectedDifficulty];
+
+      const infoStyle = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 14,
+        fill: 0xcccccc,
+        align: 'left'
+      });
+      const info = new PIXI.Text(`当前: ${songTitle} [${diffLabel}]`, infoStyle);
+      info.anchor.set(0, 0);
+      info.x = startX;
+      info.y = currentY;
+      this.battleContent.addChild(info);
+      currentY += 24;
+
+      const friends = FriendBattle.getFriends();
+      if (friends.length > 0) {
+        friends.forEach(friend => {
+          const challengeBtn = new PIXI.Graphics();
+          challengeBtn.beginFill(0xff6b9d, 0.8);
+          challengeBtn.lineStyle(1, 0xffd700, 0.5);
+          challengeBtn.drawRoundedRect(startX, currentY, contentWidth, 36, 8);
+          challengeBtn.endFill();
+          challengeBtn.interactive = true;
+          challengeBtn.cursor = 'pointer';
+
+          const btnStyle = new PIXI.TextStyle({
+            fontFamily: 'sans-serif',
+            fontSize: 14,
+            fontWeight: 'bold',
+            fill: 0xffffff,
+            align: 'left'
+          });
+          const btnText = new PIXI.Text(`⚔ 向 ${friend.displayName} 发起挑战`, btnStyle);
+          btnText.anchor.set(0, 0.5);
+          btnText.x = startX + 15;
+          btnText.y = currentY + 18;
+          challengeBtn.addChild(btnText);
+
+          const sid = songId;
+          const st = songTitle;
+          const diff = this.selectedDifficulty;
+          const fid = friend.playerId;
+          const fn = friend.displayName;
+          challengeBtn.on('pointerdown', () => {
+            FriendBattle.createChallenge(fid, fn, sid, st, diff);
+            this.updateBattleContent();
+          });
+
+          this.battleContent.addChild(challengeBtn);
+          currentY += 44;
+        });
+      } else {
+        const noFriendStyle = new PIXI.TextStyle({
+          fontFamily: 'sans-serif',
+          fontSize: 13,
+          fill: 0x888888,
+          align: 'left'
+        });
+        const noFriend = new PIXI.Text('还没有好友，去"好友"标签添加吧', noFriendStyle);
+        noFriend.anchor.set(0, 0);
+        noFriend.x = startX;
+        noFriend.y = currentY;
+        this.battleContent.addChild(noFriend);
+      }
+    }
+  }
+
+  private renderChallengeItem(ch: ChallengeInvitation, x: number, y: number, width: number, isActive: boolean): number {
+    const itemHeight = 80;
+
+    const bg = new PIXI.Graphics();
+    bg.beginFill(isActive ? 0x2a1a3a : 0x1a1a2a, 0.8);
+    bg.lineStyle(2, isActive ? 0xff6b9d : 0x666688, 0.5);
+    bg.drawRoundedRect(x, y, width, itemHeight, 10);
+    bg.endFill();
+    this.battleContent.addChild(bg);
+
+    const titleStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 14,
+      fontWeight: 'bold',
+      fill: 0xffffff,
+      align: 'left'
+    });
+    const title = new PIXI.Text(`${ch.songTitle} [${DIFFICULTY_LABELS[ch.difficulty]}]`, titleStyle);
+    title.anchor.set(0, 0);
+    title.x = x + 15;
+    title.y = y + 10;
+    this.battleContent.addChild(title);
+
+    const fromStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 12,
+      fill: 0xaaaaaa,
+      align: 'left'
+    });
+
+    const currentId = FriendBattle.getBattleStats().totalBattles >= 0 ? 'me' : '';
+    const isChallenger = ch.challengerId !== currentId;
+    const fromText = isChallenger
+      ? `${ch.challengerName} 向你发起挑战`
+      : `你向 ${ch.challengedName} 发起挑战`;
+    const from = new PIXI.Text(fromText, fromStyle);
+    from.anchor.set(0, 0);
+    from.x = x + 15;
+    from.y = y + 32;
+    this.battleContent.addChild(from);
+
+    const date = new Date(ch.createdAt);
+    const dateStr = `${date.getMonth() + 1}/${date.getDate()}`;
+    const dateStyle = new PIXI.TextStyle({
+      fontFamily: 'monospace',
+      fontSize: 11,
+      fill: 0x666666,
+      align: 'right'
+    });
+    const dateText = new PIXI.Text(dateStr, dateStyle);
+    dateText.anchor.set(1, 0);
+    dateText.x = x + width - 15;
+    dateText.y = y + 10;
+    this.battleContent.addChild(dateText);
+
+    if (isActive) {
+      const playBtn = new PIXI.Graphics();
+      playBtn.beginFill(0x6b9dff, 1);
+      playBtn.drawRoundedRect(x + width - 90, y + 42, 75, 28, 6);
+      playBtn.endFill();
+      playBtn.interactive = true;
+      playBtn.cursor = 'pointer';
+
+      const playStyle = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 13,
+        fontWeight: 'bold',
+        fill: 0xffffff,
+        align: 'center'
+      });
+      const playText = new PIXI.Text('开始应战', playStyle);
+      playText.anchor.set(0.5);
+      playText.x = x + width - 52;
+      playText.y = y + 56;
+      playBtn.addChild(playText);
+
+      const cid = ch.challengeId;
+      playBtn.on('pointerdown', () => {
+        if (this.onAcceptChallengeCallback) {
+          this.onAcceptChallengeCallback(cid);
+        }
+      });
+
+      this.battleContent.addChild(playBtn);
+    } else if (!isChallenger) {
+      const rejectBtn = new PIXI.Graphics();
+      rejectBtn.beginFill(0xff6b6b, 0.8);
+      rejectBtn.drawRoundedRect(x + width - 90, y + 42, 75, 28, 6);
+      rejectBtn.endFill();
+      rejectBtn.interactive = true;
+      rejectBtn.cursor = 'pointer';
+
+      const rejectStyle = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 13,
+        fontWeight: 'bold',
+        fill: 0xffffff,
+        align: 'center'
+      });
+      const rejectText = new PIXI.Text('拒绝', rejectStyle);
+      rejectText.anchor.set(0.5);
+      rejectText.x = x + width - 52;
+      rejectText.y = y + 56;
+      rejectBtn.addChild(rejectText);
+
+      const cid = ch.challengeId;
+      rejectBtn.on('pointerdown', () => {
+        FriendBattle.rejectChallenge(cid);
+        this.updateBattleContent();
+      });
+      this.battleContent.addChild(rejectBtn);
+    }
+
+    return y + itemHeight;
+  }
+
+  private renderBattleFriends(): void {
+    const panelWidth = Math.min(720, this.app.screen.width - 40);
+    const contentWidth = panelWidth - 60;
+    const startX = (this.app.screen.width - panelWidth) / 2 + 30;
+
+    const friends = FriendBattle.getFriends();
+
+    let currentY = 0;
+
+    const sectionStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 16,
+      fontWeight: 'bold',
+      fill: 0xffd700,
+      align: 'left'
+    });
+
+    const label = new PIXI.Text('👥 我的好友', sectionStyle);
+    label.anchor.set(0, 0);
+    label.x = startX;
+    label.y = currentY;
+    this.battleContent.addChild(label);
+    currentY += 30;
+
+    if (friends.length === 0) {
+      const emptyStyle = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 14,
+        fill: 0x888888,
+        fontStyle: 'italic',
+        align: 'center'
+      });
+      const empty = new PIXI.Text('暂无好友，添加一个开始对战吧！', emptyStyle);
+      empty.anchor.set(0.5);
+      empty.x = this.app.screen.width / 2;
+      empty.y = currentY + 30;
+      this.battleContent.addChild(empty);
+    }
+
+    friends.forEach(friend => {
+      const itemHeight = 50;
+
+      const bg = new PIXI.Graphics();
+      bg.beginFill(0x2a2a4a, 0.6);
+      bg.lineStyle(1, 0x6b9dff, 0.4);
+      bg.drawRoundedRect(startX, currentY, contentWidth, itemHeight, 8);
+      bg.endFill();
+      this.battleContent.addChild(bg);
+
+      const nameStyle = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 16,
+        fontWeight: 'bold',
+        fill: 0xffffff,
+        align: 'left'
+      });
+      const nameText = new PIXI.Text(friend.displayName, nameStyle);
+      nameText.anchor.set(0, 0.5);
+      nameText.x = startX + 15;
+      nameText.y = currentY + itemHeight / 2;
+      this.battleContent.addChild(nameText);
+
+      const removeBtn = new PIXI.Graphics();
+      removeBtn.beginFill(0xff6b6b, 0.8);
+      removeBtn.drawRoundedRect(startX + contentWidth - 60, currentY + 10, 50, 30, 6);
+      removeBtn.endFill();
+      removeBtn.interactive = true;
+      removeBtn.cursor = 'pointer';
+
+      const removeStyle = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 12,
+        fontWeight: 'bold',
+        fill: 0xffffff,
+        align: 'center'
+      });
+      const removeText = new PIXI.Text('删除', removeStyle);
+      removeText.anchor.set(0.5);
+      removeText.x = startX + contentWidth - 35;
+      removeText.y = currentY + 25;
+      removeBtn.addChild(removeText);
+
+      const pid = friend.playerId;
+      removeBtn.on('pointerdown', () => {
+        FriendBattle.removeFriend(pid);
+        this.updateBattleContent();
+      });
+      this.battleContent.addChild(removeBtn);
+
+      currentY += itemHeight + 8;
+    });
+
+    currentY += 20;
+    const addLabel = new PIXI.Text('➕ 添加好友', sectionStyle);
+    addLabel.anchor.set(0, 0);
+    addLabel.x = startX;
+    addLabel.y = currentY;
+    this.battleContent.addChild(addLabel);
+    currentY += 28;
+
+    const addBtn = new PIXI.Graphics();
+    addBtn.beginFill(0x6bff9d, 0.8);
+    addBtn.lineStyle(2, 0xffd700, 0.5);
+    addBtn.drawRoundedRect(startX, currentY, contentWidth, 44, 10);
+    addBtn.endFill();
+    addBtn.interactive = true;
+    addBtn.cursor = 'pointer';
+
+    const addBtnStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 15,
+      fontWeight: 'bold',
+      fill: 0x000000,
+      align: 'center'
+    });
+    const addBtnText = new PIXI.Text('➕ 添加模拟好友 (测试用)', addBtnStyle);
+    addBtnText.anchor.set(0.5);
+    addBtnText.x = startX + contentWidth / 2;
+    addBtnText.y = currentY + 22;
+    addBtn.addChild(addBtnText);
+
+    addBtn.on('pointerdown', () => {
+      const id = 'friend_' + Math.random().toString(36).substring(2, 8);
+      const names = ['诗韵', '清风', '明月', '墨竹', '落花', '流云', '霜叶', '幽兰', '寒梅', '碧波'];
+      const name = names[Math.floor(Math.random() * names.length)];
+      FriendBattle.addFriend(id, name);
+      this.updateBattleContent();
+    });
+    this.battleContent.addChild(addBtn);
+  }
+
+  private renderBattleResults(): void {
+    const panelWidth = Math.min(720, this.app.screen.width - 40);
+    const contentWidth = panelWidth - 60;
+    const startX = (this.app.screen.width - panelWidth) / 2 + 30;
+
+    const results = FriendBattle.getAllBattleResults();
+
+    let currentY = 0;
+
+    const sectionStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 16,
+      fontWeight: 'bold',
+      fill: 0xffd700,
+      align: 'left'
+    });
+
+    const label = new PIXI.Text('📊 对战记录', sectionStyle);
+    label.anchor.set(0, 0);
+    label.x = startX;
+    label.y = currentY;
+    this.battleContent.addChild(label);
+    currentY += 30;
+
+    if (results.length === 0) {
+      const emptyStyle = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 14,
+        fill: 0x888888,
+        fontStyle: 'italic',
+        align: 'center'
+      });
+      const empty = new PIXI.Text('暂无对战记录', emptyStyle);
+      empty.anchor.set(0.5);
+      empty.x = this.app.screen.width / 2;
+      empty.y = currentY + 30;
+      this.battleContent.addChild(empty);
+      return;
+    }
+
+    results.forEach(result => {
+      const itemHeight = 90;
+
+      const bg = new PIXI.Graphics();
+      const isWin = !result.isDraw && result.winnerId !== null;
+      bg.beginFill(isWin ? 0x2a3a2a : 0x3a2a2a, 0.6);
+      bg.lineStyle(2, result.isDraw ? 0xffd700 : isWin ? 0x6bff9d : 0xff6b6b, 0.5);
+      bg.drawRoundedRect(startX, currentY, contentWidth, itemHeight, 10);
+      bg.endFill();
+      this.battleContent.addChild(bg);
+
+      const headerStyle = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 15,
+        fontWeight: 'bold',
+        fill: 0xffffff,
+        align: 'left'
+      });
+      const header = new PIXI.Text(
+        `${result.songTitle} [${DIFFICULTY_LABELS[result.difficulty]}]`,
+        headerStyle
+      );
+      header.anchor.set(0, 0);
+      header.x = startX + 15;
+      header.y = currentY + 8;
+      this.battleContent.addChild(header);
+
+      const resultLabelStyle = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 14,
+        fontWeight: 'bold',
+        fill: result.isDraw ? 0xffd700 : isWin ? 0x6bff9d : 0xff6b6b,
+        align: 'right'
+      });
+      const resultLabel = new PIXI.Text(
+        result.isDraw ? '平局' : isWin ? '胜利' : '失败',
+        resultLabelStyle
+      );
+      resultLabel.anchor.set(1, 0);
+      resultLabel.x = startX + contentWidth - 15;
+      resultLabel.y = currentY + 8;
+      this.battleContent.addChild(resultLabel);
+
+      if (result.challengerResult && result.challengedResult) {
+        const detailStyle = new PIXI.TextStyle({
+          fontFamily: 'monospace',
+          fontSize: 12,
+          fill: 0xaaaaaa,
+          align: 'left'
+        });
+        const detail = new PIXI.Text(
+          `${result.challengerResult.displayName}: ${result.challengerResult.score} [${result.challengerResult.rating}]  vs  ${result.challengedResult.displayName}: ${result.challengedResult.score} [${result.challengedResult.rating}]`,
+          detailStyle
+        );
+        detail.anchor.set(0, 0);
+        detail.x = startX + 15;
+        detail.y = currentY + 32;
+        this.battleContent.addChild(detail);
+
+        const diffStyle = new PIXI.TextStyle({
+          fontFamily: 'monospace',
+          fontSize: 12,
+          fill: result.scoreDiff > 0 ? 0x6bff9d : result.scoreDiff < 0 ? 0xff6b6b : 0xffd700,
+          align: 'left'
+        });
+        const diff = new PIXI.Text(
+          `分差: ${result.scoreDiff}  |  准确率差: ${(result.challengerResult.accuracy - result.challengedResult.accuracy).toFixed(1)}%`,
+          diffStyle
+        );
+        diff.anchor.set(0, 0);
+        diff.x = startX + 15;
+        diff.y = currentY + 52;
+        this.battleContent.addChild(diff);
+      }
+
+      if (result.challengerResult && result.challengedResult) {
+        const replayBtn = new PIXI.Graphics();
+        replayBtn.beginFill(0x6bff9d, 0.8);
+        replayBtn.drawRoundedRect(startX + contentWidth - 80, currentY + 54, 65, 26, 6);
+        replayBtn.endFill();
+        replayBtn.interactive = true;
+        replayBtn.cursor = 'pointer';
+
+        const replayStyle = new PIXI.TextStyle({
+          fontFamily: 'sans-serif',
+          fontSize: 12,
+          fontWeight: 'bold',
+          fill: 0x000000,
+          align: 'center'
+        });
+        const replayText = new PIXI.Text('看回放', replayStyle);
+        replayText.anchor.set(0.5);
+        replayText.x = startX + contentWidth - 47;
+        replayText.y = currentY + 67;
+        replayBtn.addChild(replayText);
+
+        const cid = result.challengeId;
+        const pid = result.challengerResult.playerId;
+        replayBtn.on('pointerdown', () => {
+          if (this.onWatchReplayCallback) {
+            this.onWatchReplayCallback(cid, pid);
+          }
+        });
+        this.battleContent.addChild(replayBtn);
+      }
+
+      currentY += itemHeight + 8;
+    });
+  }
+
+  private renderBattleReplay(): void {
+    const panelWidth = Math.min(720, this.app.screen.width - 40);
+    const contentWidth = panelWidth - 60;
+    const startX = (this.app.screen.width - panelWidth) / 2 + 30;
+
+    const results = FriendBattle.getAllBattleResults().filter(
+      r => r.challengerResult && r.challengedResult
+    );
+
+    let currentY = 0;
+
+    const sectionStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 16,
+      fontWeight: 'bold',
+      fill: 0xffd700,
+      align: 'left'
+    });
+
+    const label = new PIXI.Text('🎬 回放入口', sectionStyle);
+    label.anchor.set(0, 0);
+    label.x = startX;
+    label.y = currentY;
+    this.battleContent.addChild(label);
+    currentY += 28;
+
+    if (results.length === 0) {
+      const emptyStyle = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 14,
+        fill: 0x888888,
+        fontStyle: 'italic',
+        align: 'center'
+      });
+      const empty = new PIXI.Text('完成对战后才可查看回放', emptyStyle);
+      empty.anchor.set(0.5);
+      empty.x = this.app.screen.width / 2;
+      empty.y = currentY + 30;
+      this.battleContent.addChild(empty);
+      return;
+    }
+
+    results.forEach(result => {
+      if (!result.challengerResult || !result.challengedResult) return;
+
+      const itemHeight = 70;
+
+      const bg = new PIXI.Graphics();
+      bg.beginFill(0x1a2a1a, 0.6);
+      bg.lineStyle(1, 0x6bff9d, 0.5);
+      bg.drawRoundedRect(startX, currentY, contentWidth, itemHeight, 10);
+      bg.endFill();
+      this.battleContent.addChild(bg);
+
+      const titleStyle = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 14,
+        fontWeight: 'bold',
+        fill: 0xffffff,
+        align: 'left'
+      });
+      const titleText = new PIXI.Text(
+        `${result.songTitle} [${DIFFICULTY_LABELS[result.difficulty]}]`,
+        titleStyle
+      );
+      titleText.anchor.set(0, 0);
+      titleText.x = startX + 15;
+      titleText.y = currentY + 10;
+      this.battleContent.addChild(titleText);
+
+      const replayBtn1 = new PIXI.Graphics();
+      replayBtn1.beginFill(0x6b9dff, 0.8);
+      replayBtn1.drawRoundedRect(startX + 15, currentY + 35, 120, 26, 6);
+      replayBtn1.endFill();
+      replayBtn1.interactive = true;
+      replayBtn1.cursor = 'pointer';
+
+      const p1Style = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 12,
+        fontWeight: 'bold',
+        fill: 0xffffff,
+        align: 'center'
+      });
+      const p1Text = new PIXI.Text(`▶ ${result.challengerResult.displayName}`, p1Style);
+      p1Text.anchor.set(0.5);
+      p1Text.x = startX + 75;
+      p1Text.y = currentY + 48;
+      replayBtn1.addChild(p1Text);
+
+      const cid1 = result.challengeId;
+      const pid1 = result.challengerResult.playerId;
+      replayBtn1.on('pointerdown', () => {
+        if (this.onWatchReplayCallback) {
+          this.onWatchReplayCallback(cid1, pid1);
+        }
+      });
+      this.battleContent.addChild(replayBtn1);
+
+      const replayBtn2 = new PIXI.Graphics();
+      replayBtn2.beginFill(0xff6b9d, 0.8);
+      replayBtn2.drawRoundedRect(startX + 150, currentY + 35, 120, 26, 6);
+      replayBtn2.endFill();
+      replayBtn2.interactive = true;
+      replayBtn2.cursor = 'pointer';
+
+      const p2Text = new PIXI.Text(`▶ ${result.challengedResult.displayName}`, p1Style);
+      p2Text.anchor.set(0.5);
+      p2Text.x = startX + 210;
+      p2Text.y = currentY + 48;
+      replayBtn2.addChild(p2Text);
+
+      const cid2 = result.challengeId;
+      const pid2 = result.challengedResult.playerId;
+      replayBtn2.on('pointerdown', () => {
+        if (this.onWatchReplayCallback) {
+          this.onWatchReplayCallback(cid2, pid2);
+        }
+      });
+      this.battleContent.addChild(replayBtn2);
+
+      currentY += itemHeight + 8;
+    });
+  }
+
+  public setOnAcceptChallengeCallback(callback: (challengeId: string) => void): void {
+    this.onAcceptChallengeCallback = callback;
+  }
+
+  public setOnWatchReplayCallback(callback: (challengeId: string, playerId: string) => void): void {
+    this.onWatchReplayCallback = callback;
+  }
+
   private triggerPreload(): void {
     if (!this.onPreloadCallback) return;
     if (this.preloadDebounceTimer) {
@@ -2494,6 +3404,8 @@ export class StartScreen {
     this.filterPanel.visible = false;
     this.seasonPanelVisible = false;
     this.seasonPanel.visible = false;
+    this.battlePanelVisible = false;
+    this.battlePanel.visible = false;
   }
 
   public destroy(): void {

@@ -14,6 +14,7 @@ import { SongLibrary } from './modules/SongLibrary';
 import { ChapterMapView } from './modules/ChapterMapView';
 import { PoemCollectionView } from './modules/PoemCollectionView';
 import { EndingGallery } from './modules/EndingGallery';
+import { FriendBattle } from './modules/FriendBattle';
 import { getSongById, SongWithUnlock } from './data/songs';
 import { ChartData, CharHitRecord, Difficulty, JudgeEvent, JudgeResult, LANE_COUNT, NoteData, NoteType, InputConfig, ResonanceState, PracticeConfig, DEFAULT_PRACTICE_CONFIG, BarInfo, PreloadedChart, SongChartEntry, ChartDifficultyConfig, StoryStateChangeEvent } from './types';
 
@@ -90,6 +91,8 @@ export class Game {
   private pausedTime: number = 0;
   private pauseStartTime: number = 0;
   private charRecords: CharHitRecord[] = [];
+  private judgeEventRecords: JudgeEvent[] = [];
+  private activeChallengeId?: string;
   private gameEndTimer?: number;
   
   private pauseMenu?: PIXI.Container;
@@ -1294,6 +1297,21 @@ export class Game {
     this.endingGallery.setOnCloseCallback(() => {
       this.showStartScreen();
     });
+
+    this.startScreen.setOnAcceptChallengeCallback((challengeId: string) => {
+      const challenge = FriendBattle.getChallengeById(challengeId);
+      if (!challenge) return;
+
+      FriendBattle.acceptChallenge(challengeId);
+      this.activeChallengeId = challengeId;
+      this.startGame(challenge.songId, challenge.difficulty);
+    });
+
+    this.startScreen.setOnWatchReplayCallback((_challengeId: string, _playerId: string) => {
+      // Replay viewing handled by FriendBattle.replayJudgeEvents()
+    });
+
+    FriendBattle.initialize();
   }
 
   private hideAllScreens(): void {
@@ -1328,6 +1346,8 @@ export class Game {
       result: event.result as JudgeResult,
       noteType: event.noteType
     });
+
+    this.judgeEventRecords.push(event);
 
     this.lyricProgress.onNoteJudged(event.noteId, hit, event.result);
     
@@ -1487,6 +1507,8 @@ export class Game {
     this.pausedTime = 0;
     this.pauseStartTime = 0;
     this.charRecords = [];
+    this.judgeEventRecords = [];
+    this.activeChallengeId = undefined;
     this.pressedKeys.clear();
     
     this.activeTouches.forEach(touch => {
@@ -1653,7 +1675,9 @@ export class Game {
       this.practiceConfig.speedMultiplier,
       newlyUnlockedSongs,
       storyEvents,
-      this.currentChart?.chartEntry.metadata.title || ''
+      this.currentChart?.chartEntry.metadata.title || '',
+      this.activeChallengeId,
+      this.judgeEventRecords
     );
   }
 
