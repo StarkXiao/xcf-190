@@ -1366,13 +1366,6 @@ export class Game {
     }
   }
 
-  private showStartScreen(): void {
-    this.gameState = 'start';
-    this.gameContainer.visible = false;
-    this.lyricProgress.setVisible(false);
-    this.startScreen.show();
-  }
-
   private startGame(songId: string, difficulty: Difficulty): void {
     let preloaded = this.preloadedCharts.get(this.PRELOAD_KEY(songId, difficulty));
     

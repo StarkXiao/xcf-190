@@ -1,7 +1,6 @@
 import * as PIXI from 'pixi.js';
 import {
   CollectedPoem,
-  StoryChapter,
   StoryStateChangeEvent
 } from '../types';
 import { StoryChapterSystem } from './StoryChapterSystem';

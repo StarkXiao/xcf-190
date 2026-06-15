@@ -5,6 +5,7 @@ import {
   StoryStateChangeEvent
 } from '../types';
 import { StoryChapterSystem } from './StoryChapterSystem';
+import { SongLibrary } from './SongLibrary';
 
 interface ChapterNode {
   chapter: StoryChapter;
@@ -559,10 +560,9 @@ export class ChapterMapView {
   }
 
   private getSongTitle(songId: string): string {
-    const { SongLibrary } = require('./SongLibrary');
     const library = SongLibrary.getInstance();
-    const entry = library.getSongEntry(songId);
-    return entry?.chart.metadata.title ?? songId;
+    const entry = library.getSong(songId);
+    return entry?.metadata.title ?? songId;
   }
 
   private updateNodeProgress(chapterId: string): void {

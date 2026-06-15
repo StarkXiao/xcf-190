@@ -1,5 +1,5 @@
 import * as PIXI from 'pixi.js';
-import { ScoreData, CharHitRecord, NoteType, NoteTypeStats, Difficulty, BestScore, StoryStateChangeEvent, CollectedPoem } from '../types';
+import { ScoreData, CharHitRecord, NoteType, NoteTypeStats, Difficulty, BestScore, StoryStateChangeEvent } from '../types';
 import { ScoreStorage } from './ScoreStorage';
 import { SongWithUnlock } from '../data/songs';
 import { StoryChapterSystem } from './StoryChapterSystem';
