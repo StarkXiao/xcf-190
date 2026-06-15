@@ -1,7 +1,8 @@
 import * as PIXI from 'pixi.js';
-import { ScoreData, CharHitRecord, NoteType, NoteTypeStats, Difficulty, BestScore } from '../types';
+import { ScoreData, CharHitRecord, NoteType, NoteTypeStats, Difficulty, BestScore, StoryStateChangeEvent, CollectedPoem } from '../types';
 import { ScoreStorage } from './ScoreStorage';
 import { SongWithUnlock } from '../data/songs';
+import { StoryChapterSystem } from './StoryChapterSystem';
 
 const NOTE_TYPE_LABELS: Record<NoteType, string> = {
   tap: '点击',
@@ -65,7 +66,8 @@ export class ResultScreen {
     accuracy: number = 0,
     isPractice: boolean = false,
     practiceSpeed: number = 1.0,
-    newlyUnlockedSongs: SongWithUnlock[] = []
+    newlyUnlockedSongs: SongWithUnlock[] = [],
+    storyEvents: StoryStateChangeEvent[] = []
   ): void {
     this.animationComplete = false;
     this.pendingAction = undefined;
@@ -97,6 +99,9 @@ export class ResultScreen {
     }
     if (newlyUnlockedSongs && newlyUnlockedSongs.length > 0) {
       this.createUnlockNotification(newlyUnlockedSongs);
+    }
+    if (storyEvents && storyEvents.length > 0) {
+      this.createStoryProgressNotifications(storyEvents);
     }
     this.createSongInfoFooter(songId, difficulty, isPractice);
     this.createMiniLeaderboardButton(songId, difficulty);
@@ -292,6 +297,462 @@ export class ResultScreen {
       };
       animate();
     }, 1200);
+  }
+
+  private createStoryProgressNotifications(events: StoryStateChangeEvent[]): void {
+    const poemEvents = events.filter(e => e.type === 'poem_collected');
+    const endingEvents = events.filter(e => e.type === 'ending_reached');
+    const chapterUnlockEvents = events.filter(e => e.type === 'chapter_unlocked');
+    const chapterCompleteEvents = events.filter(e => e.type === 'chapter_completed');
+
+    let currentY = 200;
+
+    for (const event of poemEvents) {
+      this.createPoemCollectedNotification(event, currentY);
+      currentY += 110;
+    }
+
+    for (const event of chapterUnlockEvents) {
+      this.createChapterUnlockedNotification(event, currentY);
+      currentY += 120;
+    }
+
+    for (const event of chapterCompleteEvents) {
+      this.createChapterCompleteNotification(event, currentY);
+      currentY += 130;
+    }
+
+    for (const event of endingEvents) {
+      this.createEndingReachedNotification(event, currentY);
+      currentY += 140;
+    }
+  }
+
+  private createPoemCollectedNotification(event: StoryStateChangeEvent, baseY: number): void {
+    const notificationContainer = new PIXI.Container();
+    notificationContainer.x = this.app.screen.width / 2;
+    notificationContainer.y = baseY;
+
+    const totalWidth = 400;
+    const cardHeight = 90;
+
+    const bg = new PIXI.Graphics();
+    bg.beginFill(0x2a1a3a, 0.95);
+    bg.lineStyle(3, 0xffd700, 1);
+    bg.drawRoundedRect(-totalWidth / 2, -cardHeight / 2, totalWidth, cardHeight, 14);
+    bg.endFill();
+    notificationContainer.addChild(bg);
+
+    const sparkleCount = 10;
+    for (let i = 0; i < sparkleCount; i++) {
+      const angle = (i / sparkleCount) * Math.PI * 2;
+      const radius = totalWidth / 2 + 10;
+      const spark = new PIXI.Graphics();
+      spark.beginFill(0xffd700, 0.9);
+      spark.drawCircle(0, 0, 2.5);
+      spark.endFill();
+      spark.x = Math.cos(angle) * radius;
+      spark.y = Math.sin(angle) * (cardHeight / 2 + 10);
+      spark.name = `spark_${i}`;
+      notificationContainer.addChild(spark);
+    }
+
+    const headerStyle = new PIXI.TextStyle({
+      fontFamily: 'serif',
+      fontSize: 18,
+      fontWeight: 'bold',
+      fill: 0xffd700,
+      stroke: 0x000000,
+      strokeThickness: 3,
+      align: 'center'
+    });
+    const header = new PIXI.Text('📜 新诗句收集！', headerStyle);
+    header.anchor.set(0.5);
+    header.y = -cardHeight / 2 + 22;
+    notificationContainer.addChild(header);
+
+    const poemStyle = new PIXI.TextStyle({
+      fontFamily: 'serif',
+      fontSize: 20,
+      fontWeight: 'bold',
+      fill: 0xffffcc,
+      stroke: 0x000000,
+      strokeThickness: 2,
+      align: 'center'
+    });
+    const poemText = new PIXI.Text(`「${event.data?.poemLine ?? ''}」`, poemStyle);
+    poemText.anchor.set(0.5);
+    poemText.y = 8;
+    notificationContainer.addChild(poemText);
+
+    const metaStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 11,
+      fill: 0xaaaaaa,
+      align: 'center'
+    });
+    const metaText = new PIXI.Text(
+      `${event.data?.rating ?? ''} · ${(event.data?.accuracy ?? 0).toFixed(1)}%`,
+      metaStyle
+    );
+    metaText.anchor.set(0.5);
+    metaText.y = cardHeight / 2 - 18;
+    notificationContainer.addChild(metaText);
+
+    notificationContainer.scale.set(0);
+    notificationContainer.alpha = 0;
+    this.container.addChild(notificationContainer);
+
+    setTimeout(() => {
+      const startTime = Date.now();
+      const duration = 700;
+      const animate = () => {
+        const elapsed = Date.now() - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        const eased = 1 - Math.pow(1 - progress, 3);
+
+        notificationContainer.scale.set(eased);
+        notificationContainer.alpha = eased;
+
+        for (let i = 0; i < sparkleCount; i++) {
+          const spark = notificationContainer.getChildByName(`spark_${i}`) as PIXI.Graphics;
+          if (spark) {
+            const angle = (i / sparkleCount) * Math.PI * 2 + elapsed / 400;
+            const baseRadius = totalWidth / 2 + 10;
+            const pulseRadius = baseRadius + Math.sin(elapsed / 120 + i) * 5;
+            spark.x = Math.cos(angle) * pulseRadius;
+            spark.y = Math.sin(angle) * (cardHeight / 2 + 10 + Math.sin(elapsed / 120 + i) * 5);
+            spark.alpha = 0.6 + Math.sin(elapsed / 150 + i * 0.8) * 0.4;
+          }
+        }
+
+        if (progress < 1 || elapsed < duration + 2500) {
+          requestAnimationFrame(animate);
+        }
+      };
+      animate();
+    }, 1600);
+  }
+
+  private createChapterUnlockedNotification(event: StoryStateChangeEvent, baseY: number): void {
+    const storySystem = StoryChapterSystem.getInstance();
+    const chapter = storySystem.getChapterById(event.chapterId);
+    if (!chapter) return;
+
+    const notificationContainer = new PIXI.Container();
+    notificationContainer.x = this.app.screen.width / 2;
+    notificationContainer.y = baseY;
+
+    const totalWidth = 420;
+    const cardHeight = 100;
+
+    const bg = new PIXI.Graphics();
+    bg.beginFill(0x1a3a2a, 0.95);
+    bg.lineStyle(3, 0x6bff9d, 1);
+    bg.drawRoundedRect(-totalWidth / 2, -cardHeight / 2, totalWidth, cardHeight, 14);
+    bg.endFill();
+    notificationContainer.addChild(bg);
+
+    const headerStyle = new PIXI.TextStyle({
+      fontFamily: 'serif',
+      fontSize: 20,
+      fontWeight: 'bold',
+      fill: 0x6bff9d,
+      stroke: 0x000000,
+      strokeThickness: 3,
+      align: 'center'
+    });
+    const header = new PIXI.Text('🔓 新篇章解锁！', headerStyle);
+    header.anchor.set(0.5);
+    header.y = -cardHeight / 2 + 24;
+    notificationContainer.addChild(header);
+
+    const chapterStyle = new PIXI.TextStyle({
+      fontFamily: 'serif',
+      fontSize: 22,
+      fontWeight: 'bold',
+      fill: 0xffffff,
+      stroke: 0x000000,
+      strokeThickness: 2,
+      align: 'center'
+    });
+    const chapterText = new PIXI.Text(`${chapter.mapIcon} ${chapter.title}`, chapterStyle);
+    chapterText.anchor.set(0.5);
+    chapterText.y = 10;
+    notificationContainer.addChild(chapterText);
+
+    const subtitleStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 12,
+      fill: 0x88ccaa,
+      align: 'center'
+    });
+    const subtitleText = new PIXI.Text(chapter.subtitle, subtitleStyle);
+    subtitleText.anchor.set(0.5);
+    subtitleText.y = cardHeight / 2 - 18;
+    notificationContainer.addChild(subtitleText);
+
+    notificationContainer.scale.set(0);
+    notificationContainer.alpha = 0;
+    this.container.addChild(notificationContainer);
+
+    setTimeout(() => {
+      const startTime = Date.now();
+      const duration = 800;
+      const animate = () => {
+        const elapsed = Date.now() - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        const eased = 1 - Math.pow(1 - progress, 3);
+
+        notificationContainer.scale.set(eased);
+        notificationContainer.alpha = eased;
+        notificationContainer.rotation = (1 - eased) * 0.1;
+
+        if (progress < 1 || elapsed < duration + 2500) {
+          requestAnimationFrame(animate);
+        }
+      };
+      animate();
+    }, 2000);
+  }
+
+  private createChapterCompleteNotification(event: StoryStateChangeEvent, baseY: number): void {
+    const storySystem = StoryChapterSystem.getInstance();
+    const chapter = storySystem.getChapterById(event.chapterId);
+    if (!chapter) return;
+
+    const notificationContainer = new PIXI.Container();
+    notificationContainer.x = this.app.screen.width / 2;
+    notificationContainer.y = baseY;
+
+    const totalWidth = 440;
+    const cardHeight = 110;
+
+    const bg = new PIXI.Graphics();
+    bg.beginFill(0x3a2a1a, 0.95);
+    bg.lineStyle(3, 0xffd700, 1);
+    bg.drawRoundedRect(-totalWidth / 2, -cardHeight / 2, totalWidth, cardHeight, 14);
+    bg.endFill();
+    notificationContainer.addChild(bg);
+
+    const starCount = 5;
+    for (let i = 0; i < starCount; i++) {
+      const angle = (i / starCount) * Math.PI * 2;
+      const radius = totalWidth / 2 + 12;
+      const star = new PIXI.Graphics();
+      star.beginFill(0xffd700, 1);
+      this.drawStar(star, 0, 0, 5, 6, 3);
+      star.endFill();
+      star.x = Math.cos(angle) * radius;
+      star.y = Math.sin(angle) * (cardHeight / 2 + 12);
+      star.name = `star_${i}`;
+      notificationContainer.addChild(star);
+    }
+
+    const headerStyle = new PIXI.TextStyle({
+      fontFamily: 'serif',
+      fontSize: 22,
+      fontWeight: 'bold',
+      fill: 0xffd700,
+      stroke: 0x000000,
+      strokeThickness: 3,
+      align: 'center'
+    });
+    const header = new PIXI.Text('🎉 章节完成！', headerStyle);
+    header.anchor.set(0.5);
+    header.y = -cardHeight / 2 + 26;
+    notificationContainer.addChild(header);
+
+    const chapterStyle = new PIXI.TextStyle({
+      fontFamily: 'serif',
+      fontSize: 20,
+      fontWeight: 'bold',
+      fill: 0xffffff,
+      stroke: 0x000000,
+      strokeThickness: 2,
+      align: 'center'
+    });
+    const chapterText = new PIXI.Text(`${chapter.mapIcon} ${chapter.title}`, chapterStyle);
+    chapterText.anchor.set(0.5);
+    chapterText.y = 8;
+    notificationContainer.addChild(chapterText);
+
+    const ending = chapter.endings.find(e => e.type === event.data?.endingType);
+    if (ending) {
+      const endingStyle = new PIXI.TextStyle({
+        fontFamily: 'serif',
+        fontSize: 14,
+        fill: 0xffd700,
+        stroke: 0x000000,
+        strokeThickness: 1,
+        align: 'center'
+      });
+      const endingText = new PIXI.Text(`结局：${ending.title}`, endingStyle);
+      endingText.anchor.set(0.5);
+      endingText.y = cardHeight / 2 - 20;
+      notificationContainer.addChild(endingText);
+    }
+
+    notificationContainer.scale.set(0);
+    notificationContainer.alpha = 0;
+    this.container.addChild(notificationContainer);
+
+    setTimeout(() => {
+      const startTime = Date.now();
+      const duration = 900;
+      const animate = () => {
+        const elapsed = Date.now() - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        const eased = 1 - Math.pow(1 - progress, 3);
+
+        notificationContainer.scale.set(eased);
+        notificationContainer.alpha = eased;
+        notificationContainer.rotation = Math.sin(elapsed / 200) * 0.03 * (1 - progress);
+
+        for (let i = 0; i < starCount; i++) {
+          const star = notificationContainer.getChildByName(`star_${i}`) as PIXI.Graphics;
+          if (star) {
+            const angle = (i / starCount) * Math.PI * 2 + elapsed / 300;
+            const baseRadius = totalWidth / 2 + 12;
+            const pulseRadius = baseRadius + Math.sin(elapsed / 100 + i) * 6;
+            star.x = Math.cos(angle) * pulseRadius;
+            star.y = Math.sin(angle) * (cardHeight / 2 + 12 + Math.sin(elapsed / 100 + i) * 6);
+            star.rotation += 0.02;
+            star.alpha = 0.7 + Math.sin(elapsed / 120 + i) * 0.3;
+          }
+        }
+
+        if (progress < 1 || elapsed < duration + 3000) {
+          requestAnimationFrame(animate);
+        }
+      };
+      animate();
+    }, 2400);
+  }
+
+  private createEndingReachedNotification(event: StoryStateChangeEvent, baseY: number): void {
+    const storySystem = StoryChapterSystem.getInstance();
+    const chapter = storySystem.getChapterById(event.chapterId);
+    if (!chapter) return;
+
+    const ending = chapter.endings.find(e => e.type === event.data?.endingType);
+    if (!ending) return;
+
+    const notificationContainer = new PIXI.Container();
+    notificationContainer.x = this.app.screen.width / 2;
+    notificationContainer.y = baseY;
+
+    const totalWidth = 460;
+    const cardHeight = 120;
+
+    const endingColor = event.data?.endingType === 'good' ? 0xffd700 : 
+                      event.data?.endingType === 'normal' ? 0x6b9dff : 0x888888;
+    const endingIcon = event.data?.endingType === 'good' ? '🌟' : 
+                       event.data?.endingType === 'normal' ? '✨' : '💫';
+
+    const bg = new PIXI.Graphics();
+    bg.beginFill(0x1a1a3a, 0.95);
+    bg.lineStyle(4, endingColor, 1);
+    bg.drawRoundedRect(-totalWidth / 2, -cardHeight / 2, totalWidth, cardHeight, 16);
+    bg.endFill();
+    notificationContainer.addChild(bg);
+
+    const headerStyle = new PIXI.TextStyle({
+      fontFamily: 'serif',
+      fontSize: 22,
+      fontWeight: 'bold',
+      fill: endingColor,
+      stroke: 0x000000,
+      strokeThickness: 3,
+      align: 'center'
+    });
+    const header = new PIXI.Text(`${endingIcon} 达成新结局！`, headerStyle);
+    header.anchor.set(0.5);
+    header.y = -cardHeight / 2 + 26;
+    notificationContainer.addChild(header);
+
+    const endingStyle = new PIXI.TextStyle({
+      fontFamily: 'serif',
+      fontSize: 20,
+      fontWeight: 'bold',
+      fill: 0xffffff,
+      stroke: 0x000000,
+      strokeThickness: 2,
+      align: 'center'
+    });
+    const endingText = new PIXI.Text(ending.title, endingStyle);
+    endingText.anchor.set(0.5);
+    endingText.y = 5;
+    notificationContainer.addChild(endingText);
+
+    const poemStyle = new PIXI.TextStyle({
+      fontFamily: 'serif',
+      fontSize: 14,
+      fill: endingColor,
+      stroke: 0x000000,
+      strokeThickness: 1,
+      align: 'center'
+    });
+    const poemText = new PIXI.Text(`「${ending.poemFragment}」`, poemStyle);
+    poemText.anchor.set(0.5);
+    poemText.y = 35;
+    notificationContainer.addChild(poemText);
+
+    const metaStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 11,
+      fill: 0xaaaaaa,
+      align: 'center'
+    });
+    const metaText = new PIXI.Text(
+      `${chapter.mapIcon} ${chapter.title}`,
+      metaStyle
+    );
+    metaText.anchor.set(0.5);
+    metaText.y = cardHeight / 2 - 18;
+    notificationContainer.addChild(metaText);
+
+    notificationContainer.scale.set(0);
+    notificationContainer.alpha = 0;
+    this.container.addChild(notificationContainer);
+
+    setTimeout(() => {
+      const startTime = Date.now();
+      const duration = 1000;
+      const animate = () => {
+        const elapsed = Date.now() - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        const eased = 1 - Math.pow(1 - progress, 3);
+
+        notificationContainer.scale.set(eased);
+        notificationContainer.alpha = eased;
+        notificationContainer.rotation = Math.sin(elapsed / 250) * 0.02 * (1 - progress);
+
+        if (progress < 1 || elapsed < duration + 3500) {
+          requestAnimationFrame(animate);
+        }
+      };
+      animate();
+    }, 2800);
+  }
+
+  private drawStar(graphics: PIXI.Graphics, cx: number, cy: number, spikes: number, outerRadius: number, innerRadius: number): void {
+    let rot = Math.PI / 2 * 3;
+    const step = Math.PI / spikes;
+
+    graphics.moveTo(cx, cy - outerRadius);
+    for (let i = 0; i < spikes; i++) {
+      let x = cx + Math.cos(rot) * outerRadius;
+      let y = cy + Math.sin(rot) * outerRadius;
+      graphics.lineTo(x, y);
+      rot += step;
+
+      x = cx + Math.cos(rot) * innerRadius;
+      y = cy + Math.sin(rot) * innerRadius;
+      graphics.lineTo(x, y);
+      rot += step;
+    }
+    graphics.lineTo(cx, cy - outerRadius);
   }
 
   private createNewRecordBadge(): void {

@@ -11,8 +11,11 @@ import { BookResonance } from './modules/BookResonance';
 import { ChapterUnlockManager } from './modules/ChapterUnlockManager';
 import { StoryChapterSystem } from './modules/StoryChapterSystem';
 import { SongLibrary } from './modules/SongLibrary';
+import { ChapterMapView } from './modules/ChapterMapView';
+import { PoemCollectionView } from './modules/PoemCollectionView';
+import { EndingGallery } from './modules/EndingGallery';
 import { getSongById, SongWithUnlock } from './data/songs';
-import { ChartData, CharHitRecord, Difficulty, JudgeEvent, JudgeResult, LANE_COUNT, NoteData, NoteType, InputConfig, ResonanceState, PracticeConfig, DEFAULT_PRACTICE_CONFIG, BarInfo, PreloadedChart, SongChartEntry, ChartDifficultyConfig } from './types';
+import { ChartData, CharHitRecord, Difficulty, JudgeEvent, JudgeResult, LANE_COUNT, NoteData, NoteType, InputConfig, ResonanceState, PracticeConfig, DEFAULT_PRACTICE_CONFIG, BarInfo, PreloadedChart, SongChartEntry, ChartDifficultyConfig, StoryStateChangeEvent } from './types';
 
 interface NoteSprite {
   container: PIXI.Container;
@@ -72,6 +75,10 @@ export class Game {
   private bookResonance: BookResonance;
   private resonanceDisplay?: PIXI.Container;
   private removeResonanceListener?: () => void;
+  
+  private chapterMapView: ChapterMapView;
+  private poemCollectionView: PoemCollectionView;
+  private endingGallery: EndingGallery;
   
   private gameContainer: PIXI.Container;
   private noteSprites: Map<number, NoteSprite> = new Map();
@@ -172,6 +179,9 @@ export class Game {
     this.resultScreen = new ResultScreen(this.app);
     this.startScreen = new StartScreen(this.app);
     this.lyricProgress = new LyricProgress(this.app);
+    this.chapterMapView = new ChapterMapView(this.app);
+    this.poemCollectionView = new PoemCollectionView(this.app);
+    this.endingGallery = new EndingGallery(this.app);
     
     this.gameContainer = new PIXI.Container();
     this.noteLayer = new PIXI.Container();
@@ -1205,6 +1215,51 @@ export class Game {
       this.effectRenderer.setResonanceIntensity(state.effectIntensity);
       this.updateResonanceDisplay(state);
     });
+
+    this.startScreen.setOnShowChapterMapCallback(() => {
+      this.hideAllScreens();
+      this.chapterMapView.show();
+    });
+
+    this.startScreen.setOnShowPoemCollectionCallback(() => {
+      this.hideAllScreens();
+      this.poemCollectionView.show();
+    });
+
+    this.startScreen.setOnShowEndingGalleryCallback(() => {
+      this.hideAllScreens();
+      this.endingGallery.show();
+    });
+
+    this.chapterMapView.setOnCloseCallback(() => {
+      this.showStartScreen();
+    });
+
+    this.chapterMapView.setOnStartSongCallback((songId: string) => {
+      this.startGame(songId, 'normal');
+    });
+
+    this.poemCollectionView.setOnCloseCallback(() => {
+      this.showStartScreen();
+    });
+
+    this.endingGallery.setOnCloseCallback(() => {
+      this.showStartScreen();
+    });
+  }
+
+  private hideAllScreens(): void {
+    this.startScreen.hide();
+    this.chapterMapView.hide();
+    this.poemCollectionView.hide();
+    this.endingGallery.hide();
+    this.resultScreen.hide();
+  }
+
+  private showStartScreen(): void {
+    this.hideAllScreens();
+    this.gameState = 'start';
+    this.startScreen.show();
   }
 
   private processJudgeEvent(event: JudgeEvent): void {
@@ -1508,6 +1563,7 @@ export class Game {
     let isNewRecord = false;
     let previousBest = null;
     let newlyUnlockedSongs: SongWithUnlock[] = [];
+    let storyEvents: StoryStateChangeEvent[] = [];
 
     if (this.currentChart) {
       const songId = this.currentChart.chartEntry.metadata.id;
@@ -1523,7 +1579,7 @@ export class Game {
         const unlockResult = ChapterUnlockManager.evaluateAfterScore(songId, difficulty);
         newlyUnlockedSongs = unlockResult.unlockedSongs;
 
-        this.storyChapterSystem.processScoreResult(
+        storyEvents = this.storyChapterSystem.processScoreResult(
           songId,
           difficulty,
           score.rating,
@@ -1554,7 +1610,8 @@ export class Game {
       accuracy,
       isPractice,
       this.practiceConfig.speedMultiplier,
-      newlyUnlockedSongs
+      newlyUnlockedSongs,
+      storyEvents
     );
   }
 

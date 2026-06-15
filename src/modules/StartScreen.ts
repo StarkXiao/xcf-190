@@ -29,6 +29,9 @@ export class StartScreen {
   private container: PIXI.Container;
   private onStartCallback?: (songId: string, difficulty: Difficulty, practiceConfig: PracticeConfig) => void;
   private onPreloadCallback?: (songId: string, difficulty: Difficulty) => void;
+  private onShowChapterMapCallback?: () => void;
+  private onShowPoemCollectionCallback?: () => void;
+  private onShowEndingGalleryCallback?: () => void;
 
   private songLibrary: SongLibrary;
   private coverArtManager: CoverArtManager;
@@ -110,6 +113,7 @@ export class StartScreen {
     this.createPracticePanel();
     this.createFilterToggle();
     this.createFilterPanel();
+    this.createStoryButtons();
     this.setupConfigChangeListener();
     this.setupKeyCaptureListener();
   }
@@ -1380,6 +1384,101 @@ export class StartScreen {
 
   public setOnPreloadCallback(callback: (songId: string, difficulty: Difficulty) => void): void {
     this.onPreloadCallback = callback;
+  }
+
+  public setOnShowChapterMapCallback(callback: () => void): void {
+    this.onShowChapterMapCallback = callback;
+  }
+
+  public setOnShowPoemCollectionCallback(callback: () => void): void {
+    this.onShowPoemCollectionCallback = callback;
+  }
+
+  public setOnShowEndingGalleryCallback(callback: () => void): void {
+    this.onShowEndingGalleryCallback = callback;
+  }
+
+  private createStoryButtons(): void {
+    const buttonY = this.app.screen.height - 60;
+    const buttonWidth = 140;
+    const buttonHeight = 44;
+    const spacing = 16;
+    const totalWidth = buttonWidth * 3 + spacing * 2;
+    const startX = (this.app.screen.width - totalWidth) / 2 + buttonWidth / 2;
+
+    const buttons = [
+      {
+        icon: '📖',
+        label: '章节地图',
+        color: 0x6b9dff,
+        callback: () => this.onShowChapterMapCallback?.()
+      },
+      {
+        icon: '📜',
+        label: '诗句收集',
+        color: 0xffd700,
+        callback: () => this.onShowPoemCollectionCallback?.()
+      },
+      {
+        icon: '🎭',
+        label: '结局画廊',
+        color: 0xff6b9d,
+        callback: () => this.onShowEndingGalleryCallback?.()
+      }
+    ];
+
+    buttons.forEach((btn, index) => {
+      const btnContainer = new PIXI.Graphics();
+      btnContainer.x = startX + index * (buttonWidth + spacing);
+      btnContainer.y = buttonY;
+
+      btnContainer.beginFill(btn.color, 0.85);
+      btnContainer.lineStyle(2, 0xffffff, 0.3);
+      btnContainer.drawRoundedRect(-buttonWidth / 2, -buttonHeight / 2, buttonWidth, buttonHeight, 10);
+      btnContainer.endFill();
+      btnContainer.interactive = true;
+      btnContainer.cursor = 'pointer';
+
+      const iconStyle = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 16,
+        align: 'left'
+      });
+      const iconText = new PIXI.Text(btn.icon, iconStyle);
+      iconText.anchor.set(0, 0.5);
+      iconText.x = -buttonWidth / 2 + 15;
+      iconText.y = 2;
+      btnContainer.addChild(iconText);
+
+      const labelStyle = new PIXI.TextStyle({
+        fontFamily: 'sans-serif',
+        fontSize: 14,
+        fontWeight: 'bold',
+        fill: 0xffffff,
+        stroke: 0x000000,
+        strokeThickness: 1,
+        align: 'left'
+      });
+      const labelText = new PIXI.Text(btn.label, labelStyle);
+      labelText.anchor.set(0, 0.5);
+      labelText.x = -buttonWidth / 2 + 42;
+      labelText.y = 2;
+      btnContainer.addChild(labelText);
+
+      btnContainer.on('pointerdown', btn.callback);
+
+      const animateBtn = () => {
+        const elapsed = Date.now() / 1000;
+        const pulse = 1 + Math.sin(elapsed * 2 + index) * 0.02;
+        btnContainer.scale.set(pulse);
+        if (this.container.visible) {
+          requestAnimationFrame(animateBtn);
+        }
+      };
+      animateBtn();
+
+      this.container.addChild(btnContainer);
+    });
   }
 
   private triggerPreload(): void {
