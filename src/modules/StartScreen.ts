@@ -92,6 +92,30 @@ export class StartScreen {
   private onAcceptChallengeCallback?: (challengeId: string) => void;
   private onWatchReplayCallback?: (challengeId: string, playerId: string) => void;
 
+  private replayViewerPanel: PIXI.Container;
+  private replaySimulator?: import('./FriendBattle').ReplaySimulator;
+  private replayCurrentTime: number = 0;
+  private replayIsPlaying: boolean = false;
+  private replayLastTickTime: number = 0;
+  private replayTickerBound?: () => void;
+  private replayInfo: {
+    challengeId: string;
+    playerId: string;
+    playerName: string;
+    songTitle: string;
+    difficulty: Difficulty;
+  } | null = null;
+  private replayScoreText?: PIXI.Text;
+  private replayComboText?: PIXI.Text;
+  private replayAccuracyText?: PIXI.Text;
+  private replayProgressText?: PIXI.Text;
+  private replayProgressBar?: PIXI.Graphics;
+  private replayEventsContainer?: PIXI.Container;
+  private replayPlayPauseBtn?: PIXI.Graphics;
+  private replayPlayPauseText?: PIXI.Text;
+  private replayMaxTime?: number;
+  private replaySpeed: number = 1.0;
+
   constructor(app: PIXI.Application) {
     this.app = app;
     this.container = new PIXI.Container();
@@ -107,6 +131,7 @@ export class StartScreen {
     this.seasonContent = new PIXI.Container();
     this.battlePanel = new PIXI.Container();
     this.battleContent = new PIXI.Container();
+    this.replayViewerPanel = new PIXI.Container();
     this.inputConfigManager = InputConfigManager.getInstance();
     this.songLibrary = SongLibrary.getInstance();
     this.coverArtManager = CoverArtManager.getInstance();
@@ -139,6 +164,7 @@ export class StartScreen {
     this.createSeasonPanel();
     this.createBattleToggle();
     this.createBattlePanel();
+    this.createReplayViewerPanel();
     this.setupConfigChangeListener();
     this.setupKeyCaptureListener();
   }
@@ -3365,7 +3391,525 @@ export class StartScreen {
   }
 
   public setOnWatchReplayCallback(callback: (challengeId: string, playerId: string) => void): void {
-    this.onWatchReplayCallback = callback;
+    this.onWatchReplayCallback = (challengeId, playerId) => {
+      this.openReplayViewer(challengeId, playerId);
+      callback(challengeId, playerId);
+    };
+  }
+
+  private createReplayViewerPanel(): void {
+    this.replayViewerPanel.x = 0;
+    this.replayViewerPanel.y = 0;
+    this.replayViewerPanel.visible = false;
+
+    const mask = new PIXI.Graphics();
+    mask.beginFill(0x000000, 0.92);
+    mask.drawRect(0, 0, this.app.screen.width, this.app.screen.height);
+    mask.endFill();
+    mask.interactive = true;
+    this.replayViewerPanel.addChild(mask);
+
+    const panelWidth = Math.min(780, this.app.screen.width - 40);
+    const panelHeight = Math.min(650, this.app.screen.height - 40);
+    const panelX = (this.app.screen.width - panelWidth) / 2;
+    const panelY = (this.app.screen.height - panelHeight) / 2;
+
+    const panelBg = new PIXI.Graphics();
+    panelBg.beginFill(0x101028, 0.98);
+    panelBg.lineStyle(3, 0x6bff9d, 0.8);
+    panelBg.drawRoundedRect(panelX, panelY, panelWidth, panelHeight, 16);
+    panelBg.endFill();
+    this.replayViewerPanel.addChild(panelBg);
+
+    const titleStyle = new PIXI.TextStyle({
+      fontFamily: 'serif',
+      fontSize: 26,
+      fill: 0xffd700,
+      fontWeight: 'bold',
+      stroke: 0x8b4513,
+      strokeThickness: 2,
+      align: 'center'
+    });
+
+    const title = new PIXI.Text('🎬 对战回放', titleStyle);
+    title.anchor.set(0.5);
+    title.x = this.app.screen.width / 2;
+    title.y = panelY + 35;
+    this.replayViewerPanel.addChild(title);
+
+    const closeBtn = new PIXI.Graphics();
+    closeBtn.x = panelX + panelWidth - 42;
+    closeBtn.y = panelY + 30;
+    closeBtn.beginFill(0xff6b6b, 0.9);
+    closeBtn.drawRoundedRect(-18, -18, 36, 36, 8);
+    closeBtn.endFill();
+    closeBtn.interactive = true;
+    closeBtn.cursor = 'pointer';
+    closeBtn.on('pointerdown', () => this.closeReplayViewer());
+
+    const closeStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 18,
+      fontWeight: 'bold',
+      fill: 0xffffff,
+      align: 'center'
+    });
+    const closeText = new PIXI.Text('✕', closeStyle);
+    closeText.anchor.set(0.5);
+    closeBtn.addChild(closeText);
+    this.replayViewerPanel.addChild(closeBtn);
+
+    const songInfoStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 16,
+      fill: 0xcccccc,
+      align: 'center'
+    });
+    const songInfo = new PIXI.Text('加载中...', songInfoStyle);
+    songInfo.anchor.set(0.5);
+    songInfo.x = this.app.screen.width / 2;
+    songInfo.y = panelY + 70;
+    songInfo.name = 'replaySongInfo';
+    this.replayViewerPanel.addChild(songInfo);
+
+    const statsY = panelY + 115;
+    const statsWidth = (panelWidth - 80) / 3;
+
+    this.replayScoreText = this.createReplayStatBox(panelX + 40, statsY, statsWidth, '分数', '0', 0xffffff);
+    this.replayComboText = this.createReplayStatBox(panelX + 40 + statsWidth, statsY, statsWidth, '连击', '0x', 0xffd700);
+    this.replayAccuracyText = this.createReplayStatBox(panelX + 40 + statsWidth * 2, statsY, statsWidth, '准确率', '0.0%', 0x6bff9d);
+
+    const barY = panelY + 195;
+    const barWidth = panelWidth - 80;
+    const barHeight = 16;
+
+    const barBg = new PIXI.Graphics();
+    barBg.beginFill(0x333355, 1);
+    barBg.drawRoundedRect(panelX + 40, barY, barWidth, barHeight, 8);
+    barBg.endFill();
+    this.replayViewerPanel.addChild(barBg);
+
+    this.replayProgressBar = new PIXI.Graphics();
+    this.replayProgressBar.beginFill(0x6bff9d, 1);
+    this.replayProgressBar.drawRoundedRect(panelX + 40, barY, 0, barHeight, 8);
+    this.replayProgressBar.endFill();
+    this.replayViewerPanel.addChild(this.replayProgressBar);
+
+    this.replayProgressText = new PIXI.Text('0 / 0  (0.0%)', new PIXI.TextStyle({
+      fontFamily: 'monospace',
+      fontSize: 12,
+      fill: 0xaaaaaa,
+      align: 'center'
+    }));
+    this.replayProgressText.anchor.set(0.5);
+    this.replayProgressText.x = this.app.screen.width / 2;
+    this.replayProgressText.y = barY + barHeight + 15;
+    this.replayViewerPanel.addChild(this.replayProgressText);
+
+    const controlsY = barY + barHeight + 45;
+    const btnWidth = 120;
+    const btnHeight = 44;
+    const btnY = controlsY;
+    const centerX = this.app.screen.width / 2;
+
+    this.replayPlayPauseBtn = new PIXI.Graphics();
+    this.replayPlayPauseBtn.beginFill(0x6b9dff, 1);
+    this.replayPlayPauseBtn.lineStyle(2, 0xffffff, 0.6);
+    this.replayPlayPauseBtn.drawRoundedRect(centerX - btnWidth / 2, btnY, btnWidth, btnHeight, 10);
+    this.replayPlayPauseBtn.endFill();
+    this.replayPlayPauseBtn.interactive = true;
+    this.replayPlayPauseBtn.cursor = 'pointer';
+    this.replayPlayPauseBtn.on('pointerdown', () => this.toggleReplayPlayPause());
+
+    this.replayPlayPauseText = new PIXI.Text('▶ 播放', new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 18,
+      fontWeight: 'bold',
+      fill: 0xffffff,
+      align: 'center'
+    }));
+    this.replayPlayPauseText.anchor.set(0.5);
+    this.replayPlayPauseText.x = centerX;
+    this.replayPlayPauseText.y = btnY + btnHeight / 2;
+    this.replayPlayPauseBtn.addChild(this.replayPlayPauseText);
+    this.replayViewerPanel.addChild(this.replayPlayPauseBtn);
+
+    const resetBtn = new PIXI.Graphics();
+    resetBtn.beginFill(0xff6b9d, 0.9);
+    resetBtn.lineStyle(2, 0xffffff, 0.4);
+    resetBtn.drawRoundedRect(centerX - btnWidth / 2 - 140, btnY, btnWidth, btnHeight, 10);
+    resetBtn.endFill();
+    resetBtn.interactive = true;
+    resetBtn.cursor = 'pointer';
+    resetBtn.on('pointerdown', () => this.resetReplay());
+
+    const resetStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 18,
+      fontWeight: 'bold',
+      fill: 0xffffff,
+      align: 'center'
+    });
+    const resetText = new PIXI.Text('↺ 重置', resetStyle);
+    resetText.anchor.set(0.5);
+    resetText.x = centerX - 140;
+    resetText.y = btnY + btnHeight / 2;
+    resetBtn.addChild(resetText);
+    this.replayViewerPanel.addChild(resetBtn);
+
+    const speedBtn = new PIXI.Graphics();
+    speedBtn.beginFill(0xffd700, 0.85);
+    speedBtn.lineStyle(2, 0xffffff, 0.4);
+    speedBtn.drawRoundedRect(centerX - btnWidth / 2 + 140, btnY, btnWidth, btnHeight, 10);
+    speedBtn.endFill();
+    speedBtn.interactive = true;
+    speedBtn.cursor = 'pointer';
+    speedBtn.on('pointerdown', () => this.cycleReplaySpeed());
+
+    const speedStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 18,
+      fontWeight: 'bold',
+      fill: 0x000000,
+      align: 'center'
+    });
+    const speedText = new PIXI.Text('⏩ 1.0x', speedStyle);
+    speedText.anchor.set(0.5);
+    speedText.x = centerX + 140;
+    speedText.y = btnY + btnHeight / 2;
+    speedText.name = 'replaySpeedText';
+    speedBtn.addChild(speedText);
+    this.replayViewerPanel.addChild(speedBtn);
+
+    const timelineY = btnY + btnHeight + 30;
+    const timelineLabel = new PIXI.Text('📊 判定时间轴', new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 14,
+      fontWeight: 'bold',
+      fill: 0xffd700,
+      align: 'left'
+    }));
+    timelineLabel.anchor.set(0, 0);
+    timelineLabel.x = panelX + 40;
+    timelineLabel.y = timelineY;
+    this.replayViewerPanel.addChild(timelineLabel);
+
+    const timelineContainerY = timelineY + 30;
+    const timelineHeight = panelHeight - (timelineContainerY - panelY) - 30;
+
+    this.replayEventsContainer = new PIXI.Container();
+    this.replayEventsContainer.x = panelX + 40;
+    this.replayEventsContainer.y = timelineContainerY;
+    this.replayViewerPanel.addChild(this.replayEventsContainer);
+
+    const timeAxisBg = new PIXI.Graphics();
+    timeAxisBg.beginFill(0x1a1a33, 0.8);
+    timeAxisBg.lineStyle(1, 0x444466, 0.6);
+    timeAxisBg.drawRoundedRect(0, 0, panelWidth - 80, timelineHeight, 8);
+    timeAxisBg.endFill();
+    this.replayEventsContainer.addChild(timeAxisBg);
+
+    this.container.addChild(this.replayViewerPanel);
+
+    this.replayTickerBound = this.replayTicker.bind(this);
+  }
+
+  private createReplayStatBox(x: number, y: number, width: number, label: string, value: string, valueColor: number): PIXI.Text {
+    const boxHeight = 60;
+
+    const bg = new PIXI.Graphics();
+    bg.beginFill(0x1a1a33, 0.8);
+    bg.lineStyle(1, 0x444466, 0.6);
+    bg.drawRoundedRect(x, y, width, boxHeight, 10);
+    bg.endFill();
+    this.replayViewerPanel.addChild(bg);
+
+    const labelStyle = new PIXI.TextStyle({
+      fontFamily: 'sans-serif',
+      fontSize: 13,
+      fill: 0x888888,
+      align: 'center'
+    });
+    const labelText = new PIXI.Text(label, labelStyle);
+    labelText.anchor.set(0.5);
+    labelText.x = x + width / 2;
+    labelText.y = y + 16;
+    this.replayViewerPanel.addChild(labelText);
+
+    const valueStyle = new PIXI.TextStyle({
+      fontFamily: 'monospace',
+      fontSize: 24,
+      fontWeight: 'bold',
+      fill: valueColor,
+      align: 'center'
+    });
+    const valueText = new PIXI.Text(value, valueStyle);
+    valueText.anchor.set(0.5);
+    valueText.x = x + width / 2;
+    valueText.y = y + 42;
+    valueText.name = `replayStat_${label}`;
+    this.replayViewerPanel.addChild(valueText);
+
+    return valueText;
+  }
+
+  private openReplayViewer(challengeId: string, playerId: string): void {
+    const replayData = FriendBattle.getReplayData(challengeId, playerId);
+    if (!replayData) {
+      return;
+    }
+
+    const comparison = FriendBattle.getBattleComparison(challengeId);
+    const challenge = FriendBattle.getChallengeById(challengeId);
+    const playerResult = comparison?.challengerResult?.playerId === playerId
+      ? comparison?.challengerResult
+      : comparison?.challengedResult;
+
+    if (!playerResult || !challenge) return;
+
+    this.replaySimulator = FriendBattle.replayJudgeEvents(replayData);
+    this.replayInfo = {
+      challengeId,
+      playerId,
+      playerName: playerResult.displayName,
+      songTitle: challenge.songTitle,
+      difficulty: challenge.difficulty
+    };
+    this.replayIsPlaying = false;
+    this.replayCurrentTime = 0;
+    this.replayMaxTime = replayData.judgeEvents.length > 0
+      ? Math.max(...replayData.judgeEvents.map(e => e.time)) + 1000
+      : 10000;
+
+    const songInfo = this.replayViewerPanel.getChildByName('replaySongInfo') as PIXI.Text;
+    if (songInfo) {
+      songInfo.text = `${playerResult.displayName}  —  ${challenge.songTitle} [${DIFFICULTY_LABELS[challenge.difficulty]}]`;
+    }
+
+    this.replayEventsContainer?.removeChildren();
+    if (this.replayEventsContainer) {
+      const containerWidth = Math.min(780, this.app.screen.width - 40) - 80;
+      const containerHeight = Math.min(650, this.app.screen.height - 40) - (340 - 65) - 30;
+
+      const timeAxisBg = new PIXI.Graphics();
+      timeAxisBg.beginFill(0x1a1a33, 0.8);
+      timeAxisBg.lineStyle(1, 0x444466, 0.6);
+      timeAxisBg.drawRoundedRect(0, 0, containerWidth, containerHeight, 8);
+      timeAxisBg.endFill();
+      this.replayEventsContainer.addChild(timeAxisBg);
+
+      const resultColors: Record<string, number> = {
+        perfect: 0x6bff9d,
+        great: 0x6b9dff,
+        good: 0xffd700,
+        miss: 0xff6b6b
+      };
+
+      replayData.judgeEvents.forEach((event, index) => {
+        if (index > 300) return;
+
+        const xPos = (event.time / (this.replayMaxTime || 1)) * (containerWidth - 40) + 20;
+        const yPos = 20 + (event.lane / 4) * (containerHeight - 40);
+        const dotSize = event.result === 'perfect' ? 6 : event.result === 'great' ? 5 : 4;
+
+        const dot = new PIXI.Graphics();
+        dot.beginFill(resultColors[event.result] || 0xffffff, 0.9);
+        dot.drawCircle(xPos, yPos, dotSize);
+        dot.endFill();
+        this.replayEventsContainer?.addChild(dot);
+      });
+
+      const playhead = new PIXI.Graphics();
+      playhead.name = 'replayPlayhead';
+      playhead.beginFill(0xffffff, 1);
+      playhead.drawRect(20, 10, 2, containerHeight - 20);
+      playhead.endFill();
+      this.replayEventsContainer.addChild(playhead);
+    }
+
+    this.updateReplayDisplay();
+
+    if (this.replayPlayPauseBtn && this.replayPlayPauseText) {
+      this.replayPlayPauseBtn.off('pointerdown');
+      this.replayPlayPauseBtn.on('pointerdown', () => this.toggleReplayPlayPause());
+    }
+
+    this.replayViewerPanel.visible = true;
+  }
+
+  private closeReplayViewer(): void {
+    this.stopReplayTicker();
+    this.replayIsPlaying = false;
+    this.replaySimulator = undefined;
+    this.replayInfo = null;
+    this.replayViewerPanel.visible = false;
+    this.updateReplayPlayPauseButton();
+  }
+
+  private toggleReplayPlayPause(): void {
+    if (!this.replaySimulator) return;
+
+    if (this.replaySimulator.isComplete()) {
+      this.resetReplay();
+    }
+
+    this.replayIsPlaying = !this.replayIsPlaying;
+
+    if (this.replayIsPlaying) {
+      this.startReplayTicker();
+      this.replayLastTickTime = performance.now();
+    } else {
+      this.stopReplayTicker();
+    }
+
+    this.updateReplayPlayPauseButton();
+  }
+
+  private resetReplay(): void {
+    if (!this.replaySimulator) return;
+
+    this.replaySimulator.reset();
+    this.replayCurrentTime = 0;
+    this.replayIsPlaying = false;
+    this.stopReplayTicker();
+    this.updateReplayDisplay();
+    this.updateReplayPlayPauseButton();
+  }
+
+  private cycleReplaySpeed(): void {
+    const speeds = [1.0, 1.5, 2.0, 0.5];
+    const currentIndex = speeds.indexOf(this.replaySpeed);
+    const nextIndex = (currentIndex + 1) % speeds.length;
+    this.replaySpeed = speeds[nextIndex];
+
+    const speedText = this.replayViewerPanel.getChildByName('replaySpeedText') as PIXI.Text;
+    if (speedText) {
+      speedText.text = `⏩ ${this.replaySpeed.toFixed(1)}x`;
+    }
+  }
+
+  private updateReplayPlayPauseButton(): void {
+    if (!this.replayPlayPauseText) return;
+
+    if (this.replayIsPlaying) {
+      this.replayPlayPauseText.text = '⏸ 暂停';
+    } else {
+      this.replayPlayPauseText.text = this.replaySimulator?.isComplete() ? '↺ 重新播放' : '▶ 播放';
+    }
+
+    if (this.replayPlayPauseBtn) {
+      this.replayPlayPauseBtn.clear();
+      const color = this.replayIsPlaying ? 0xffa500 : 0x6b9dff;
+      this.replayPlayPauseBtn.beginFill(color, 1);
+      this.replayPlayPauseBtn.lineStyle(2, 0xffffff, 0.6);
+      const centerX = this.app.screen.width / 2;
+      const btnWidth = 120;
+      const btnHeight = 44;
+      const btnY = (Math.min(650, this.app.screen.height - 40) / 2) + 65;
+      this.replayPlayPauseBtn.drawRoundedRect(centerX - btnWidth / 2, btnY - 165, btnWidth, btnHeight, 10);
+      this.replayPlayPauseBtn.endFill();
+    }
+  }
+
+  private startReplayTicker(): void {
+    if (!this.replayTickerBound) return;
+    this.app.ticker.add(this.replayTickerBound);
+  }
+
+  private stopReplayTicker(): void {
+    if (!this.replayTickerBound) return;
+    this.app.ticker.remove(this.replayTickerBound);
+  }
+
+  private replayTicker(): void {
+    if (!this.replayIsPlaying || !this.replaySimulator) return;
+
+    const now = performance.now();
+    const deltaTime = (now - this.replayLastTickTime) * this.replaySpeed;
+    this.replayLastTickTime = now;
+    this.replayCurrentTime += deltaTime;
+
+    this.replaySimulator.advanceToTime(this.replayCurrentTime);
+    this.updateReplayDisplay();
+
+    if (this.replaySimulator.isComplete()) {
+      this.replayIsPlaying = false;
+      this.stopReplayTicker();
+      this.updateReplayPlayPauseButton();
+    }
+  }
+
+  private updateReplayDisplay(): void {
+    if (!this.replaySimulator || !this.replayInfo) return;
+
+    const score = this.replaySimulator.getCurrentScore();
+    const accuracy = this.replaySimulator.getCurrentAccuracy();
+    const combo = this.replaySimulator.getCombo();
+    const progress = this.replaySimulator.getProgress();
+    const processed = this.replaySimulator.getTotalEvents() - this.replaySimulator.getRemainingEvents();
+    const total = this.replaySimulator.getTotalEvents();
+
+    if (this.replayScoreText) {
+      this.replayScoreText.text = `${score.score}`;
+    }
+    if (this.replayComboText) {
+      this.replayComboText.text = `${combo}x`;
+    }
+    if (this.replayAccuracyText) {
+      this.replayAccuracyText.text = `${accuracy.toFixed(1)}%`;
+    }
+    if (this.replayProgressText) {
+      this.replayProgressText.text = `${processed} / ${total}  (${(progress * 100).toFixed(1)}%)`;
+    }
+
+    if (this.replayProgressBar) {
+      const panelWidth = Math.min(780, this.app.screen.width - 40);
+      const panelX = (this.app.screen.width - panelWidth) / 2;
+      const barWidth = panelWidth - 80;
+      const barHeight = 16;
+      const barY = (this.app.screen.height - Math.min(650, this.app.screen.height - 40)) / 2 + 195;
+
+      this.replayProgressBar.clear();
+      const fillWidth = Math.max(2, barWidth * progress);
+      let barColor = 0x6bff9d;
+      if (progress > 0.3) barColor = 0x6b9dff;
+      if (progress > 0.7) barColor = 0xffd700;
+      if (this.replaySimulator.isComplete()) barColor = 0xff6b9d;
+      this.replayProgressBar.beginFill(barColor, 1);
+      this.replayProgressBar.drawRoundedRect(panelX + 40, barY, fillWidth, barHeight, 8);
+      this.replayProgressBar.endFill();
+    }
+
+    if (this.replayEventsContainer) {
+      const playhead = this.replayEventsContainer.getChildByName('replayPlayhead') as PIXI.Graphics;
+      if (playhead && this.replayMaxTime) {
+        const containerWidth = Math.min(780, this.app.screen.width - 40) - 80;
+        const containerHeight = Math.min(650, this.app.screen.height - 40) - (340 - 65) - 30;
+        const xPos = (this.replayCurrentTime / this.replayMaxTime) * (containerWidth - 40) + 20;
+        playhead.clear();
+        playhead.beginFill(0xffffff, 1);
+        playhead.drawRect(xPos, 10, 2, containerHeight - 20);
+        playhead.endFill();
+
+        const timeLabel = playhead.getChildByName('playheadTimeLabel');
+        if (timeLabel) {
+          (timeLabel as PIXI.Text).text = `${(this.replayCurrentTime / 1000).toFixed(1)}s`;
+          (timeLabel as PIXI.Text).x = xPos;
+        } else {
+          const timeLabelText = new PIXI.Text(`${(this.replayCurrentTime / 1000).toFixed(1)}s`, new PIXI.TextStyle({
+            fontFamily: 'monospace',
+            fontSize: 10,
+            fill: 0xffffff,
+            align: 'center'
+          }));
+          timeLabelText.name = 'playheadTimeLabel';
+          timeLabelText.anchor.set(0.5, 1);
+          timeLabelText.x = xPos;
+          timeLabelText.y = 8;
+          playhead.addChild(timeLabelText);
+        }
+      }
+    }
   }
 
   private triggerPreload(): void {
@@ -3406,6 +3950,8 @@ export class StartScreen {
     this.seasonPanel.visible = false;
     this.battlePanelVisible = false;
     this.battlePanel.visible = false;
+    this.replayViewerPanel.visible = false;
+    this.stopReplayTicker();
   }
 
   public destroy(): void {
@@ -3418,6 +3964,7 @@ export class StartScreen {
       }
     });
     this.loadedCoverTextures.clear();
+    this.stopReplayTicker();
     this.container.destroy();
   }
 
